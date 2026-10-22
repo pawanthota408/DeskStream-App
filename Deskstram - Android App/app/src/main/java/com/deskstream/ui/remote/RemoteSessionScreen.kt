@@ -168,6 +168,11 @@ fun RemoteSessionScreen(
                             request: WebResourceRequest?
                         ): Boolean {
                             val destUrl = request?.url?.toString() ?: return false
+                            // Intercept navigation to dashboard to exit session gracefully to Android native UI
+                            if (destUrl.contains("dashboard.php")) {
+                                view?.post { onDisconnect() }
+                                return true
+                            }
                             // Intercept unexpected redirection to web login or index.php
                             if (destUrl.contains("index.php") || destUrl.contains("login.php")) {
                                 redirectAttempt++
@@ -425,6 +430,7 @@ fun RemoteSessionScreen(
                             onClick = {
                                 webViewRef?.let { wv ->
                                     wv.requestFocus()
+                                    wv.evaluateJavascript("if (typeof window.focusMobileKeyboard === 'function') window.focusMobileKeyboard();", null)
                                     val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
                                     imm?.toggleSoftInput(InputMethodManager.SHOW_FORCED, 0)
                                 }

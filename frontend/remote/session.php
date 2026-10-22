@@ -465,6 +465,10 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
             outline: none;
             background: #000;
             cursor: default;
+            touch-action: none;
+            -webkit-touch-callout: none;
+            user-select: none;
+            -webkit-user-select: none;
         }
 
         /* FLOATING CONTROLS */
@@ -1071,13 +1075,20 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
             <p id="hostOfflineMsg" style="margin:0 0 20px;color:#94a3b8;font-size:0.92rem;line-height:1.5;">
                 Target device is not streaming its screen. Please ensure DeskStream Desktop Agent is installed and running on the target PC / Laptop.
             </p>
-            <div style="display:flex;gap:10px;justify-content:center;">
-                <button type="button" class="btn btn-primary" onclick="if (window.history.length > 1) { window.history.back(); } else { window.location.href = '../dashboard.php'; }" style="padding:10px 24px;font-weight:600;border-radius:8px;background:#ef4444;color:#fff;border:none;cursor:pointer;">
-                    Go Back
+            <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+                <button type="button" class="btn btn-secondary" onclick="reconnectWebStream()" style="padding:10px 20px;font-weight:600;border-radius:8px;background:#334155;color:#fff;border:none;cursor:pointer;">
+                    Retry Connection
+                </button>
+                <button type="button" class="btn btn-primary" onclick="handleSessionExit()" style="padding:10px 24px;font-weight:600;border-radius:8px;background:#ef4444;color:#fff;border:none;cursor:pointer;">
+                    Close Session
                 </button>
             </div>
         </div>
     </div>
+
+    <!-- Hidden Virtual Keyboard Input for Mobile Soft Keyboard Support -->
+    <input type="text" id="mobileVirtualInput" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+        style="position:fixed;top:-2000px;left:-2000px;width:1px;height:1px;opacity:0.001;pointer-events:none;z-index:-1;" />
 
 
     <script>
@@ -1869,13 +1880,40 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
             setStreamState("DISCONNECTED");
         }
 
-        function dismissSessionEnded() {
+        function handleSessionExit() {
             const params = new URLSearchParams(window.location.search);
-            if (params.get("integrated") === "1") {
-                window.parent.postMessage("end_integrated_session", "*");
+            if (params.get("integrated") === "1" || (window.parent && window.parent !== window)) {
+                try {
+                    window.parent.postMessage("end_integrated_session", "*");
+                    return;
+                } catch (e) { }
+            }
+            if (window.history.length > 1) {
+                window.history.back();
                 return;
             }
-            window.location.href = "../dashboard.php";
+            window.close();
+            setTimeout(() => {
+                if (!window.closed) {
+                    window.location.href = "../dashboard.php";
+                }
+            }, 300);
+        }
+
+        function dismissSessionEnded() {
+            handleSessionExit();
+        }
+
+        function reconnectWebStream() {
+            const overlay = document.getElementById("hostOfflineOverlay");
+            if (overlay) overlay.style.display = "none";
+            const ended = document.getElementById("sessionEndedDialog");
+            if (ended) ended.style.display = "none";
+            sessionEndedDialogShown = false;
+            stopWebStream();
+            setTimeout(() => {
+                startWebStream();
+            }, 250);
         }
 
         /* ============================================================
@@ -2617,9 +2655,10 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
             const payloadNals = extractAnnexBNals(dataBytes);
             const effectiveSPS = sps || payloadNals.find((nal) => (nal[0] & 0x1F) === 7) || null;
             const effectivePPS = pps || payloadNals.find((nal) => (nal[0] & 0x1F) === 8) || null;
-            const idrNal = payloadNals.find((nal) => (nal[0] & 0x1F) === 5) || null;
+            // Extract ALL IDR slice NALUs (type 5) to support multi-slice keyframes
+            const idrNals = payloadNals.filter((nal) => (nal[0] & 0x1F) === 5);
 
-            if (!idrNal) {
+            if (idrNals.length === 0) {
                 return new Uint8Array(0);
             }
 
@@ -2627,7 +2666,7 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
             const seen = new Set();
             const addIfUnique = (nal) => {
                 if (!nal || nal.length === 0) return;
-                const key = Array.from(nal).map((b) => b.toString(16).padStart(2, '0')).join('');
+                const key = Array.from(nal.subarray(0, Math.min(32, nal.length))).map((b) => b.toString(16).padStart(2, '0')).join('');
                 if (seen.has(key)) return;
                 seen.add(key);
                 selected.push(nal);
@@ -2635,27 +2674,16 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
 
             if (effectiveSPS) addIfUnique(effectiveSPS);
             if (effectivePPS) addIfUnique(effectivePPS);
-            addIfUnique(idrNal);
+            // Append ALL IDR slices in exact order
+            for (const slice of idrNals) {
+                selected.push(slice);
+            }
 
             if (selected.length === 0) {
                 return new Uint8Array(0);
             }
 
-            const ordered = [];
-            for (const nal of selected) {
-                const type = nal[0] & 0x1F;
-                if (type === 7) ordered.push(nal);
-            }
-            for (const nal of selected) {
-                const type = nal[0] & 0x1F;
-                if (type === 8) ordered.push(nal);
-            }
-            for (const nal of selected) {
-                const type = nal[0] & 0x1F;
-                if (type === 5) ordered.push(nal);
-            }
-
-            return buildAvccFromNalUnits(ordered);
+            return buildAvccFromNalUnits(selected);
         }
 
         let pendingWebCodecsFrame = null;
@@ -3665,11 +3693,17 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
                         continue;
                     }
                     else if (type === 3) {
-                        console.warn("[WS] Host offline or stream rejected by relay (type 3)");
-                        wsRxBuffer = wsRxBuffer.slice(1);
-                        showHostNotBroadcastingOverlay("Target device is not streaming video. Please ensure DeskStream Desktop Agent is running on that computer.");
-                        stopWebStream();
-                        return;
+                        if (!sessionWasEstablished && !websocketAuthenticated) {
+                            console.warn("[WS] Host offline or stream rejected by relay (type 3 before auth)");
+                            wsRxBuffer = wsRxBuffer.slice(1);
+                            showHostNotBroadcastingOverlay("Target device is not streaming video. Please ensure DeskStream Desktop Agent is running on that computer.");
+                            stopWebStream();
+                            return;
+                        } else {
+                            console.debug("[WS] Ignored stray type 3 byte in established stream");
+                            wsRxBuffer = wsRxBuffer.slice(1);
+                            continue;
+                        }
                     }
                     else {
                         console.debug("[WS] Unknown packet type:", type);
@@ -3847,7 +3881,7 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
                 stopWebStream();
                 if (reverseTransitionPending) {
                     window.parent.postMessage("end_integrated_session", "*");
-                } else if (sessionWasEstablished && videoFrameCount > 0) {
+                } else if (sessionWasEstablished) {
                     showSessionEnded();
                 } else {
                     const failReason = (event.reason && event.reason !== "none") 
@@ -4868,6 +4902,178 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
            CANVAS EVENTS
         ============================================================ */
 
+        /* ============================================================
+           MOBILE TOUCH & GESTURE EMULATION
+        ============================================================ */
+
+        let touchStartTime = 0;
+        let touchStartPos = null;
+        let touchLongPressTimer = null;
+        let isTouchDragging = false;
+        let touchLastWheelY = 0;
+
+        function attachTouchEvents() {
+            if (!canvas) return;
+
+            canvas.style.touchAction = "none";
+
+            canvas.addEventListener("touchstart", (e) => {
+                if (e.touches.length === 1) {
+                    const touch = e.touches[0];
+                    touchStartTime = Date.now();
+                    touchStartPos = { x: touch.clientX, y: touch.clientY };
+                    isTouchDragging = false;
+
+                    // Immediately move cursor to touch position
+                    sendMouseMove(touch);
+
+                    // Long-press timer (450ms) for Right Click
+                    clearTimeout(touchLongPressTimer);
+                    touchLongPressTimer = setTimeout(() => {
+                        if (touchStartPos && !isTouchDragging) {
+                            if (navigator.vibrate) {
+                                try { navigator.vibrate(40); } catch (_) {}
+                            }
+                            sendMouseDown({ clientX: touch.clientX, clientY: touch.clientY, button: 2 });
+                            setTimeout(() => {
+                                sendMouseUp({ clientX: touch.clientX, clientY: touch.clientY, button: 2 });
+                            }, 50);
+                            touchStartPos = null;
+                        }
+                    }, 450);
+                } else if (e.touches.length === 2) {
+                    // 2-finger scroll preparation
+                    clearTimeout(touchLongPressTimer);
+                    touchStartPos = null;
+                    isTouchDragging = false;
+                    touchLastWheelY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+                }
+            }, { passive: false });
+
+            canvas.addEventListener("touchmove", (e) => {
+                e.preventDefault();
+
+                if (e.touches.length === 1) {
+                    const touch = e.touches[0];
+                    if (touchStartPos) {
+                        const dx = touch.clientX - touchStartPos.x;
+                        const dy = touch.clientY - touchStartPos.y;
+                        const dist = Math.hypot(dx, dy);
+
+                        if (dist > 8) {
+                            clearTimeout(touchLongPressTimer);
+                            if (!isTouchDragging) {
+                                isTouchDragging = true;
+                                sendMouseDown({ clientX: touch.clientX, clientY: touch.clientY, button: 0 });
+                            }
+                            sendMouseMove(touch);
+                        }
+                    } else if (isTouchDragging) {
+                        sendMouseMove(touch);
+                    }
+                } else if (e.touches.length === 2) {
+                    const currentY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+                    const deltaY = touchLastWheelY - currentY;
+                    if (Math.abs(deltaY) > 6) {
+                        sendMouseWheel({
+                            preventDefault: () => {},
+                            deltaX: 0,
+                            deltaY: deltaY > 0 ? 120 : -120
+                        });
+                        touchLastWheelY = currentY;
+                    }
+                }
+            }, { passive: false });
+
+            canvas.addEventListener("touchend", (e) => {
+                clearTimeout(touchLongPressTimer);
+
+                if (isTouchDragging) {
+                    isTouchDragging = false;
+                    const touch = e.changedTouches[0];
+                    sendMouseUp({ clientX: touch.clientX, clientY: touch.clientY, button: 0 });
+                } else if (touchStartPos && e.changedTouches.length > 0) {
+                    const touch = e.changedTouches[0];
+                    const duration = Date.now() - touchStartTime;
+                    const dx = touch.clientX - touchStartPos.x;
+                    const dy = touch.clientY - touchStartPos.y;
+                    if (duration < 450 && Math.hypot(dx, dy) < 15) {
+                        sendMouseMove(touch);
+                        sendMouseDown({ clientX: touch.clientX, clientY: touch.clientY, button: 0 });
+                        setTimeout(() => {
+                            sendMouseUp({ clientX: touch.clientX, clientY: touch.clientY, button: 0 });
+                        }, 40);
+                    }
+                }
+                touchStartPos = null;
+            }, { passive: false });
+
+            canvas.addEventListener("touchcancel", () => {
+                clearTimeout(touchLongPressTimer);
+                if (isTouchDragging) {
+                    isTouchDragging = false;
+                    sendMouseUp({ button: 0 });
+                }
+                touchStartPos = null;
+            });
+        }
+
+        /* ============================================================
+           MOBILE VIRTUAL KEYBOARD SUPPORT
+        ============================================================ */
+
+        window.focusMobileKeyboard = function() {
+            const input = document.getElementById("mobileVirtualInput");
+            if (input) {
+                input.value = "";
+                input.focus();
+            }
+        };
+
+        function attachMobileKeyboard() {
+            const input = document.getElementById("mobileVirtualInput");
+            if (!input) return;
+
+            input.addEventListener("keydown", (e) => {
+                if (!isSocketOpen()) return;
+                const code = e.keyCode || e.which;
+                if (code === 8 || code === 13 || code === 9 || code === 27 || (code >= 37 && code <= 40)) {
+                    sendKeyboard(e, 5);
+                    setTimeout(() => {
+                        sendKeyboard(e, 6);
+                    }, 40);
+                }
+            });
+
+            input.addEventListener("input", (e) => {
+                if (!isSocketOpen()) return;
+                const val = input.value;
+                if (!val || val.length === 0) return;
+
+                for (let i = 0; i < val.length; i++) {
+                    const ch = val[i];
+                    let keyCode = ch.toUpperCase().charCodeAt(0);
+                    if (ch === '\n' || ch === '\r') keyCode = 13;
+
+                    const mockEvent = {
+                        preventDefault: () => {},
+                        keyCode: keyCode,
+                        which: keyCode,
+                        key: ch,
+                        code: "Key" + ch.toUpperCase(),
+                        ctrlKey: false,
+                        shiftKey: ch >= 'A' && ch <= 'Z',
+                        altKey: false
+                    };
+                    sendKeyboard(mockEvent, 5);
+                    setTimeout(() => {
+                        sendKeyboard(mockEvent, 6);
+                    }, 30);
+                }
+                input.value = "";
+            });
+        }
+
         function attachCanvasEvents() {
             if (!canvas) {
                 return;
@@ -4892,6 +5098,12 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
             });
 
             canvas.addEventListener("wheel", sendMouseWheel, { passive: false });
+
+            // Attach touch gestures for mobile devices
+            attachTouchEvents();
+
+            // Attach soft keyboard bridge for mobile devices
+            attachMobileKeyboard();
 
             // Attach keyboard events to window for seamless focus retention
             window.addEventListener("keydown", event => {
