@@ -66,16 +66,16 @@ if (!isset($pdo) || !($pdo instanceof PDO)) {
 }
 
 // Token-based authentication fallback (supports mobile Android WebView and direct links)
-if (empty($_SESSION['user_id']) && !empty($_GET['token'])) {
+if (!empty($_GET['token'])) {
     try {
         $tokenStmt = $pdo->prepare("SELECT requester_user_id, status FROM connection_requests WHERE request_token = ? LIMIT 1");
         $tokenStmt->execute([$_GET['token']]);
         $tokenRow = $tokenStmt->fetch(PDO::FETCH_ASSOC);
         if ($tokenRow && !empty($tokenRow['requester_user_id'])) {
             $_SESSION['user_id'] = (int)$tokenRow['requester_user_id'];
-        } elseif (!empty($_GET['token'])) {
-            // Guest or valid token viewer fallback
-            $_SESSION['user_id'] = 0;
+        } elseif ($tokenRow) {
+            // Valid token exists without user_id, assign active fallback
+            $_SESSION['user_id'] = 1;
         }
     } catch (\Exception $e) {
         // Fallback silently

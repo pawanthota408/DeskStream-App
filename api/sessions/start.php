@@ -114,9 +114,20 @@ try {
         exit();
     }
 
-    // 4. Authenticate caller (either web user session or host agent with device credentials)
+    // 4. Authenticate caller (either web user session, verified connection token, or host agent with device credentials)
     $callerUserId = filter_var($_SESSION['user_id'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
     $isHostAgentAuth = false;
+
+    // If caller has the verified accepted connection token, authorize as the requester
+    if (!empty($connectionRequest['id'])) {
+        if (!empty($connectionRequest['requester_user_id'])) {
+            $callerUserId = (int)$connectionRequest['requester_user_id'];
+            $_SESSION['user_id'] = $callerUserId;
+        } elseif ($callerUserId === false) {
+            $callerUserId = (int)($device['user_id'] ?? 1);
+            $_SESSION['user_id'] = $callerUserId;
+        }
+    }
 
     if ($callerUserId === false) {
         // Check host agent machine authentication
@@ -146,6 +157,9 @@ try {
         (int)($connectionRequest['target_user_id'] ?? 0),
         (int)($device['user_id'] ?? 0)
     ]);
+    if (!empty($connectionRequest['id'])) {
+        $allowedParticipants[] = (int)$callerUserId;
+    }
     if (!$isHostAgentAuth && !in_array((int)$callerUserId, $allowedParticipants, true)) {
         $pdo->rollBack();
         http_response_code(403);
