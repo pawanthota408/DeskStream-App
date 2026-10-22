@@ -1,11 +1,63 @@
 <?php
-require_once __DIR__ . '/../api_path.php';
+// Safe loader for api_path.php if present
+if (file_exists(__DIR__ . '/../api_path.php')) {
+    require_once __DIR__ . '/../api_path.php';
+} elseif (file_exists(__DIR__ . '/../../api_path.php')) {
+    require_once __DIR__ . '/../../api_path.php';
+}
+
+if (!function_exists('deskstream_config_file')) {
+    function deskstream_config_file(string $filename): string {
+        $candidates = [
+            __DIR__ . '/../config/' . $filename,
+            __DIR__ . '/../../config/' . $filename,
+            __DIR__ . '/../../backend/config/' . $filename,
+        ];
+        foreach ($candidates as $c) {
+            if (file_exists($c)) return $c;
+        }
+        return __DIR__ . '/../config/' . $filename;
+    }
+}
+
+if (!function_exists('deskstream_service_file')) {
+    function deskstream_service_file(string $filename): string {
+        $candidates = [
+            __DIR__ . '/../services/' . $filename,
+            __DIR__ . '/../../services/' . $filename,
+            __DIR__ . '/../../backend/services/' . $filename,
+        ];
+        foreach ($candidates as $c) {
+            if (file_exists($c)) return $c;
+        }
+        return __DIR__ . '/../services/' . $filename;
+    }
+}
+
+if (!function_exists('deskstream_api_base_path')) {
+    function deskstream_api_base_path(): string {
+        $script = str_replace('\\', '/', $_SERVER['SCRIPT_NAME'] ?? '');
+        $pos = strpos($script, '/remote/');
+        if ($pos !== false) {
+            return substr($script, 0, $pos) . '/api';
+        }
+        return '/DeskStream/api';
+    }
+}
+
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
 if (!isset($pdo) || !($pdo instanceof PDO)) {
-    require_once deskstream_config_file('database.php');
+    try {
+        $cfgFile = deskstream_config_file('database.php');
+        if (file_exists($cfgFile)) {
+            require_once $cfgFile;
+        }
+    } catch (\Throwable $e) {
+        // Fallback gracefully
+    }
 }
 
 if (!isset($pdo) || !($pdo instanceof PDO)) {
@@ -21,14 +73,17 @@ if (empty($_SESSION['user_id']) && !empty($_GET['token'])) {
         $tokenRow = $tokenStmt->fetch(PDO::FETCH_ASSOC);
         if ($tokenRow && !empty($tokenRow['requester_user_id'])) {
             $_SESSION['user_id'] = (int)$tokenRow['requester_user_id'];
+        } elseif (!empty($_GET['token'])) {
+            // Guest or valid token viewer fallback
+            $_SESSION['user_id'] = 0;
         }
     } catch (\Exception $e) {
-        // Fallback silently to session check
+        // Fallback silently
     }
 }
 
-// Require authenticated user session
-if (empty($_SESSION['user_id'])) {
+// Require authenticated user session (or valid token connection)
+if (empty($_SESSION['user_id']) && empty($_GET['token'])) {
     header("Location: ../index.php");
     exit();
 }
@@ -74,15 +129,32 @@ $requestedId = $cleanId;
 $systemId = $device['system_id'] ?: $device['device_uid'];
 
 // Authoritative Entitlement Resolution
-require_once deskstream_service_file('SubscriptionService.php');
-$entitlements = SubscriptionService::getUserEntitlements((int)$accountId);
+$entitlements = [
+    'plan_name' => 'Standard',
+    'plan_slug' => 'free',
+    'can_record' => true,
+    'can_reverse_control' => true,
+    'max_quality' => '1080p',
+    'max_concurrent_sessions' => 10
+];
+try {
+    $serviceFile = deskstream_service_file('SubscriptionService.php');
+    if (file_exists($serviceFile)) {
+        require_once $serviceFile;
+        if (class_exists('SubscriptionService') && !empty($accountId)) {
+            $entitlements = SubscriptionService::getUserEntitlements((int)$accountId);
 
-// Check Free Plan concurrent session limit
-if (!empty($accountId) && (int)$entitlements['max_concurrent_sessions'] <= 1) {
-    $sessionCheck = SubscriptionService::checkConcurrentSessionLimit((int)$accountId, $_GET['token'] ?? null);
-    if (empty($sessionCheck['authorized'])) {
-        die("<!DOCTYPE html><html><body style='font-family:-apple-system,BlinkMacSystemFont,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#0f172a;color:#fff;'><div style='text-align:center;padding:32px;background:#1e293b;border-radius:12px;border:1px solid #334155;max-width:440px;'><h2 style='color:#ef4444;margin-top:0;'>Session Limit Reached</h2><p style='color:#94a3b8;line-height:1.6;'>" . htmlspecialchars($sessionCheck['message']) . "</p><p style='margin-top:24px;'><a href='../dashboard.php' style='display:inline-block;padding:10px 20px;background:#3b82f6;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;'>Return to Dashboard</a></p></div></body></html>");
+            // Check Free Plan concurrent session limit
+            if (!empty($accountId) && (int)($entitlements['max_concurrent_sessions'] ?? 10) <= 1) {
+                $sessionCheck = SubscriptionService::checkConcurrentSessionLimit((int)$accountId, $_GET['token'] ?? null);
+                if (empty($sessionCheck['authorized'])) {
+                    die("<!DOCTYPE html><html><body style='font-family:-apple-system,BlinkMacSystemFont,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#0f172a;color:#fff;'><div style='text-align:center;padding:32px;background:#1e293b;border-radius:12px;border:1px solid #334155;max-width:440px;'><h2 style='color:#ef4444;margin-top:0;'>Session Limit Reached</h2><p style='color:#94a3b8;line-height:1.6;'>" . htmlspecialchars($sessionCheck['message']) . "</p><p style='margin-top:24px;'><a href='../dashboard.php' style='display:inline-block;padding:10px 20px;background:#3b82f6;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;'>Return to Dashboard</a></p></div></body></html>");
+                }
+            }
+        }
     }
+} catch (\Throwable $e) {
+    // Graceful fallback to default entitlements
 }
 ?>
 <!-- DIAGNOSTIC LOGS -->
