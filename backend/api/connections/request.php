@@ -1,0 +1,154 @@
+<?php
+// backend/api/connections/request.php
+header('Content-Type: application/json');
+header('Access-Control-Allow-Origin: *');
+header('Access-Control-Allow-Methods: POST, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type');
+
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    exit(0);
+}
+
+require_once __DIR__ . '/../../config/database.php';
+require_once __DIR__ . '/_auth.php';
+
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
+    echo json_encode(["status" => "error", "message" => "Method not allowed"]);
+    exit();
+}
+
+$rawInput = file_get_contents('php://input');
+$data = json_decode($rawInput, true);
+
+$targetSystemId = preg_replace('/[^0-9]/', '', (string)($data['target_system_id'] ?? $data['target_id'] ?? ''));
+$requesterSystemId = preg_replace('/[^0-9]/', '', (string)($data['requester_system_id'] ?? $data['requester_id'] ?? ''));
+$requesterName = trim($data['requester_name'] ?? 'Dashboard Viewer');
+$requesterUserId = requireConnectionUser();
+$localLoopback = !empty($data['local_loopback']);
+
+if (empty($targetSystemId)) {
+    http_response_code(400);
+    echo json_encode(["status" => "error", "message" => "Target System ID is required."]);
+    exit();
+}
+
+if (!$localLoopback && !empty($requesterSystemId) && $requesterSystemId === $targetSystemId) {
+    http_response_code(400);
+    echo json_encode(["status" => "error", "message" => "Cannot initiate a remote connection to your own computer."]);
+    exit();
+}
+
+require_once __DIR__ . '/../../services/SubscriptionService.php';
+
+try {
+    // 1. Find target device directly by system_id or device_uid
+    $targetStmt = $pdo->prepare("
+        SELECT id, user_id, system_id, device_uid, name, os_type, ip_address, is_online, last_seen_at,
+               TIMESTAMPDIFF(SECOND, last_seen_at, NOW()) AS sec_since_seen
+        FROM devices 
+        WHERE system_id = ? OR device_uid = ?
+        ORDER BY (is_online = 1 AND last_seen_at >= (NOW() - INTERVAL 30 SECOND)) DESC, last_seen_at DESC 
+        LIMIT 1
+    ");
+    $targetStmt->execute([$targetSystemId, $targetSystemId]);
+    $targetSystem = $targetStmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$targetSystem) {
+        http_response_code(404);
+        echo json_encode(["status" => "error", "message" => "Device with ID '{$targetSystemId}' does not exist or has not registered."]);
+        exit();
+    }
+    $canonicalTargetSystemId = (string)($targetSystem['system_id'] ?: $targetSystem['device_uid']);
+
+    // Check if target is a mobile device (cannot stream screen)
+    $targetOs = strtolower((string)($targetSystem['os_type'] ?? ''));
+    $targetName = (string)($targetSystem['name'] ?? '');
+    $isMobileTarget = ($targetOs === 'android' || $targetOs === 'ios' || stripos($targetName, 'mobile') !== false || stripos($targetName, 'android') !== false || stripos($targetName, 'vivo') !== false);
+
+    if ($isMobileTarget) {
+        http_response_code(400);
+        echo json_encode([
+            "status" => "error", 
+            "code" => "MOBILE_TARGET_NOT_SUPPORTED",
+            "message" => "Target device '{$targetSystem['name']}' ({$targetSystemId}) is a mobile phone. DeskStream currently streams screens from Windows PC / Laptop computers only. To view a screen, please enter your PC / Laptop's DeskStream ID (e.g. 375 768 952)."
+        ]);
+        exit();
+    }
+
+    // 2. Check online status (active if marked online and heartbeat received within last 30s)
+    $secSinceSeen = isset($targetSystem['sec_since_seen']) ? (int)$targetSystem['sec_since_seen'] : 999;
+    $isActuallyOnline = ($targetSystem['is_online'] == 1) && ($targetSystem['last_seen_at'] !== null) && ($secSinceSeen <= 30);
+
+    if (!$isActuallyOnline) {
+        http_response_code(409);
+        echo json_encode([
+            "status" => "error", 
+            "message" => "Target computer '{$targetSystem['name']}' is currently offline."
+        ]);
+        exit();
+    }
+
+    // Reserve the user's concurrency slot through request creation to prevent parallel requests
+    // from bypassing the Free Plan limit.
+    $pdo->beginTransaction();
+    $sessionAuth = SubscriptionService::checkConcurrentSessionLimit($requesterUserId);
+    if (empty($sessionAuth['authorized'])) {
+        $pdo->rollBack();
+        http_response_code(403);
+        echo json_encode([
+            "status" => "error",
+            "code" => $sessionAuth['code'] ?? 'LIMIT_EXCEEDED',
+            "message" => $sessionAuth['message'] ?? 'Concurrent session limit exceeded on your account.'
+        ]);
+        exit();
+    }
+
+    // 3. Generate unique request token
+    $requestToken = bin2hex(random_bytes(16));
+
+    // 4. Create connection request record (expires in 60s)
+    // For local loopback or same account devices, auto-accept
+    $isSameAccount = (!empty($requesterUserId) && !empty($targetSystem['user_id']) && (int)$requesterUserId === (int)$targetSystem['user_id']);
+    $initialStatus = ($localLoopback || $isSameAccount) ? 'accepted' : 'pending';
+    $insertStmt = $pdo->prepare("
+        INSERT INTO connection_requests 
+        (request_token, requester_user_id, requester_system_id, requester_name, target_user_id, target_system_id, status, created_at, expires_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP(), UTC_TIMESTAMP() + INTERVAL 60 SECOND)
+    ");
+
+    $insertStmt->execute([
+        $requestToken,
+        $requesterUserId,
+        $requesterSystemId ?: '000000000',
+        $requesterName,
+        $targetSystem['user_id'],
+        $canonicalTargetSystemId,
+        $initialStatus
+    ]);
+    $pdo->commit();
+
+    $requestId = $pdo->lastInsertId();
+
+    echo json_encode([
+        "status" => "success",
+        "message" => $localLoopback ? "Local connection request auto-accepted." : "Connection request created. Awaiting approval from target computer.",
+        "request" => [
+            "id" => $requestId,
+            "request_token" => $requestToken,
+            "target_system_id" => $canonicalTargetSystemId,
+            "target_name" => $targetSystem['name'],
+            "target_ip" => $targetSystem['ip_address'],
+            "status" => $initialStatus,
+            "expires_in_seconds" => 60
+        ]
+    ]);
+
+} catch (\Throwable $e) {
+    if ($pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
+    error_log('Connection request creation failed: ' . $e->getMessage());
+    http_response_code(500);
+    echo json_encode(["status" => "error", "message" => "Unable to create the connection request."]);
+}

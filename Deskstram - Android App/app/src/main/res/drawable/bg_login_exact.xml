@@ -1,0 +1,47 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="200dp"
+    android:height="200dp"
+    android:viewportWidth="360"
+    android:viewportHeight="720">
+
+    <!-- Base Clean Light Canvas -->
+    <path
+        android:pathData="M 0,0 H 360 V 720 H 0 Z"
+        android:fillColor="#FAFAFC" />
+
+    <!-- TOP LEFT SOFT SUBTLE RED ACCENT WAVE -->
+    <path
+        android:pathData="M -20,-20 H 260 C 160,60 70,120 -20,160 Z"
+        android:fillColor="#15DC2626" />
+
+    <!-- Top Left Fine Red Stroke Accent 1 -->
+    <path
+        android:pathData="M -20,160 C 70,120 160,60 260,-20"
+        android:strokeColor="#33DC2626"
+        android:strokeWidth="1.5" />
+
+    <!-- Top Left Fine Red Stroke Accent 2 -->
+    <path
+        android:pathData="M -20,220 C 80,160 200,80 300,-20"
+        android:strokeColor="#22DC2626"
+        android:strokeWidth="1.2" />
+
+
+    <!-- BOTTOM RIGHT SOFT SUBTLE RED ACCENT WAVE -->
+    <path
+        android:pathData="M -20,740 V 600 C 100,700 240,620 380,560 V 740 Z"
+        android:fillColor="#15DC2626" />
+
+    <!-- Bottom Fine Red Stroke Accent 1 -->
+    <path
+        android:pathData="M -20,600 C 100,700 240,620 380,560"
+        android:strokeColor="#33DC2626"
+        android:strokeWidth="1.5" />
+
+    <!-- Bottom Fine Red Stroke Accent 2 -->
+    <path
+        android:pathData="M -20,520 C 100,640 240,560 380,500"
+        android:strokeColor="#22DC2626"
+        android:strokeWidth="1.2" />
+
+</vector>

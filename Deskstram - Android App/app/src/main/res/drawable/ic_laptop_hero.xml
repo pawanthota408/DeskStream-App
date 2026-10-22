@@ -1,0 +1,111 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="180dp"
+    android:height="120dp"
+    android:viewportWidth="600"
+    android:viewportHeight="400">
+
+    <!-- Group for perspective angled laptop -->
+    <group>
+
+        <!-- Base / Keyboard Deck Bottom Edge Shadow -->
+        <path
+            android:pathData="M 120,335 C 240,360 400,345 520,305 C 525,303 520,298 510,298 C 400,315 240,325 120,310 Z"
+            android:fillColor="#1F000000" />
+
+        <!-- Base Metal Body Deck (Perspective) -->
+        <path
+            android:pathData="M 30,300 L 450,370 C 470,373 540,325 550,300 L 550,290 C 545,280 470,260 450,260 L 190,270 Z">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:startX="30"
+                    android:startY="300"
+                    android:endX="550"
+                    android:endY="290"
+                    android:type="linear">
+                    <item android:color="#FFD1D5DB" android:offset="0.0" />
+                    <item android:color="#FFE5E7EB" android:offset="0.5" />
+                    <item android:color="#FF9CA3AF" android:offset="1.0" />
+                </gradient>
+            </aapt:attr>
+        </path>
+
+        <!-- Front Lip & Trackpad Notch -->
+        <path
+            android:pathData="M 170,325 L 220,333 L 220,336 C 220,337 170,330 170,325 Z"
+            android:fillColor="#FF9CA3AF" />
+
+        <!-- Trackpad Area -->
+        <path
+            android:pathData="M 120,305 L 230,322 L 310,300 L 210,288 Z"
+            android:strokeColor="#FFB0B7C0"
+            android:strokeWidth="1.5"
+            android:fillColor="#10000000" />
+
+        <!-- Keyboard Deck Area (Black Keys) -->
+        <path
+            android:pathData="M 110,285 L 430,290 L 490,270 L 200,270 Z"
+            android:fillColor="#FF1E293B" />
+
+        <!-- Laptop Screen Metal Lid Back/Border -->
+        <path
+            android:pathData="M 195,270 L 555,285 L 575,25 C 576,20 570,18 565,18 L 210,35 C 205,35 200,40 198,45 Z">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:startX="195"
+                    android:startY="270"
+                    android:endX="575"
+                    android:endY="25"
+                    android:type="linear">
+                    <item android:color="#FFE5E7EB" android:offset="0.0" />
+                    <item android:color="#FFD1D5DB" android:offset="0.6" />
+                    <item android:color="#FF9CA3AF" android:offset="1.0" />
+                </gradient>
+            </aapt:attr>
+        </path>
+
+        <!-- Black Inner Bezel -->
+        <path
+            android:pathData="M 205,263 L 545,277 L 565,30 L 217,45 Z"
+            android:fillColor="#FF0F172A" />
+
+        <!-- Web Camera Dot -->
+        <path
+            android:pathData="M 391,37 A 2,2 0 1,1 391,36.9 Z"
+            android:fillColor="#FF64748B" />
+
+        <!-- Display Screen - Bright Colorful Blue & Pink Waves Wallpaper -->
+        <path
+            android:pathData="M 212,255 L 538,269 L 557,38 L 223,52 Z">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:startX="212"
+                    android:startY="255"
+                    android:endX="557"
+                    android:endY="38"
+                    android:type="linear">
+                    <item android:color="#FF2563EB" android:offset="0.0" />
+                    <item android:color="#FF3B82F6" android:offset="0.3" />
+                    <item android:color="#FF8B5CF6" android:offset="0.6" />
+                    <item android:color="#FFEC4899" android:offset="1.0" />
+                </gradient>
+            </aapt:attr>
+        </path>
+
+        <!-- Dynamic Screen Waves Accent 1 (Light Blue Wave) -->
+        <path
+            android:pathData="M 212,255 C 300,200 400,220 538,269 L 548,150 C 420,120 320,180 212,255 Z"
+            android:fillColor="#3060A5FA" />
+
+        <!-- Dynamic Screen Waves Accent 2 (Pink Glowing Ribbon) -->
+        <path
+            android:pathData="M 223,52 C 340,120 450,80 557,38 L 548,150 C 450,180 340,100 223,52 Z"
+            android:fillColor="#40F43F5E" />
+
+        <!-- Glossy Glass Reflection Overlay -->
+        <path
+            android:pathData="M 223,52 L 480,45 L 212,255 Z"
+            android:fillColor="#1AFFFFFF" />
+
+    </group>
+</vector>

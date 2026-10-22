@@ -1,0 +1,86 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="200dp"
+    android:height="200dp"
+    android:viewportWidth="360"
+    android:viewportHeight="720">
+
+    <!-- Deep Background Base Gradient -->
+    <path
+        android:pathData="M 0,0 H 360 V 720 H 0 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="180"
+                android:startY="0"
+                android:endX="180"
+                android:endY="720"
+                android:type="linear">
+                <item android:color="#1A0204" android:offset="0.0" />
+                <item android:color="#2B0508" android:offset="0.5" />
+                <item android:color="#0F0203" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Glowing Top Right Crimson Wave Curve -->
+    <path
+        android:pathData="M 120,-40 C 240,60 380,200 380,380 C 380,500 280,600 180,760 H 380 V -40 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="120"
+                android:startY="-40"
+                android:endX="380"
+                android:endY="760"
+                android:type="linear">
+                <item android:color="#66DC2626" android:offset="0.0" />
+                <item android:color="#33B91C1C" android:offset="0.5" />
+                <item android:color="#111A0204" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Dynamic Flowing Ribbon Accent 1 -->
+    <path
+        android:pathData="M -40,300 C 80,180 280,120 380,240 C 420,300 320,480 200,560 C 80,640 -20,520 -40,300 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="-40"
+                android:startY="180"
+                android:endX="380"
+                android:endY="640"
+                android:type="linear">
+                <item android:color="#44FF1A24" android:offset="0.0" />
+                <item android:color="#22990000" android:offset="0.7" />
+                <item android:color="#001A0204" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Bottom Left Flowing Crimson Wave -->
+    <path
+        android:pathData="M -40,480 C 60,380 200,500 240,620 C 280,720 180,760 -40,760 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="-40"
+                android:startY="380"
+                android:endX="240"
+                android:endY="760"
+                android:type="linear">
+                <item android:color="#55E50914" android:offset="0.0" />
+                <item android:color="#227F1D1D" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Fine Light Stroke Lines on Ribbon Curves -->
+    <path
+        android:pathData="M 120,-40 C 240,60 380,200 380,380 C 380,500 280,600 180,760"
+        android:strokeColor="#44FF8A8A"
+        android:strokeWidth="1.5" />
+
+    <path
+        android:pathData="M -40,300 C 80,180 280,120 380,240"
+        android:strokeColor="#33FF6B6B"
+        android:strokeWidth="1.2" />
+
+</vector>

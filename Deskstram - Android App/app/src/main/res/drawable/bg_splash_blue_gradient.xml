@@ -1,0 +1,79 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="200dp"
+    android:height="200dp"
+    android:viewportWidth="360"
+    android:viewportHeight="720">
+
+    <!-- Base Gradient Canvas (Deep Royal Blue to Bright Cyan/Purple) -->
+    <path
+        android:pathData="M 0,0 H 360 V 720 H 0 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="180"
+                android:startY="0"
+                android:endX="180"
+                android:endY="720"
+                android:type="linear">
+                <item android:color="#2B3DF0" android:offset="0.0" />
+                <item android:color="#0088FF" android:offset="0.45" />
+                <item android:color="#1A58F5" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Top Right Magenta/Purple Glow Accent -->
+    <path
+        android:pathData="M 120,-40 C 240,40 380,180 380,360 V -40 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="120"
+                android:startY="-40"
+                android:endX="380"
+                android:endY="360"
+                android:type="linear">
+                <item android:color="#66A855F6" android:offset="0.0" />
+                <item android:color="#223B82F6" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Top Left Deep Blue Curve Wave -->
+    <path
+        android:pathData="M -40,-40 H 180 C 100,180 -40,360 -40,360 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="-40"
+                android:startY="-40"
+                android:endX="180"
+                android:endY="360"
+                android:type="linear">
+                <item android:color="#441E3A8A" android:offset="0.0" />
+                <item android:color="#111D4ED8" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Center Cyan Glowing Arc -->
+    <path
+        android:pathData="M -40,240 C 120,180 280,320 400,160 C 420,240 320,440 180,520 C 40,600 -20,420 -40,240 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="-40"
+                android:startY="180"
+                android:endX="400"
+                android:endY="520"
+                android:type="linear">
+                <item android:color="#3338BDF8" android:offset="0.0" />
+                <item android:color="#1160A5FA" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Fine Light Stroke Accent Lines -->
+    <path
+        android:pathData="M -40,240 C 120,180 280,320 400,160"
+        android:strokeColor="#55E0F2FE"
+        android:strokeWidth="1.5" />
+
+</vector>

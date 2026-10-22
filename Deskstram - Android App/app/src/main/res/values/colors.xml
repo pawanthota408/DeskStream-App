@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="deskstream_red">#DC2626</color>
+    <color name="deskstream_red_dark">#B91C1C</color>
+    <color name="deskstream_red_light">#FEE2E2</color>
+    <color name="deskstream_dark">#111827</color>
+    <color name="deskstream_bg">#F8FAFC</color>
+    <color name="deskstream_surface">#FFFFFF</color>
+    <color name="splash_background">#F8FAFC</color>
+</resources>

@@ -1,0 +1,58 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="200dp"
+    android:height="200dp"
+    android:viewportWidth="360"
+    android:viewportHeight="720">
+
+    <!-- Off-White Base Canvas -->
+    <path
+        android:pathData="M 0,0 H 360 V 720 H 0 Z"
+        android:fillColor="#FAFAFC" />
+
+    <!-- Soft Pink-Red Translucent Ribbon Wave (Left to Center) -->
+    <path
+        android:pathData="M -40,180 C 80,240 220,280 380,180 C 400,240 260,340 -40,280 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="-40"
+                android:startY="180"
+                android:endX="380"
+                android:endY="280"
+                android:type="linear">
+                <item android:color="#33FF6B81" android:offset="0.0" />
+                <item android:color="#22E50914" android:offset="0.5" />
+                <item android:color="#00A855F6" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Soft Cyan-Blue Translucent Ribbon Wave (Center Right to Bottom Left) -->
+    <path
+        android:pathData="M 400,200 C 260,300 120,420 -40,500 C -40,580 160,540 400,320 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="400"
+                android:startY="200"
+                android:endX="-40"
+                android:endY="580"
+                android:type="linear">
+                <item android:color="#3360A5FA" android:offset="0.0" />
+                <item android:color="#223B82F6" android:offset="0.6" />
+                <item android:color="#001E3A8A" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Fine Light Accent Lines -->
+    <path
+        android:pathData="M -40,180 C 80,240 220,280 380,180"
+        android:strokeColor="#33FF8A8A"
+        android:strokeWidth="1.5" />
+
+    <path
+        android:pathData="M 400,200 C 260,300 120,420 -40,500"
+        android:strokeColor="#3393C5FD"
+        android:strokeWidth="1.5" />
+
+</vector>

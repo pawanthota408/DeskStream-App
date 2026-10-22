@@ -1,0 +1,27 @@
+[Unit]
+Description=Screen Share Relay Server
+After=network.target
+
+[Service]
+Type=simple
+User=deskstream
+Group=deskstream
+WorkingDirectory=/opt/deskstream/relay-server
+ExecStart=/opt/deskstream/relay-server/relay-server
+Restart=on-failure
+RestartSec=5
+
+# Environment Configuration
+Environment="RELAY_PORT=9001"
+Environment="SCREENSHARE_BACKEND_URL=https://friendssoftwaresolutions.in/DeskStream/api"
+# SCREENSHARE_BACKEND_HOST and SCREENSHARE_BACKEND_PORT are optional URL overrides.
+# Leave them unset when using the HTTPS Hostinger API so TLS certificate checks use its hostname.
+
+# Security Hardening
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

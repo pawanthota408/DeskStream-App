@@ -1,0 +1,96 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="288"
+    android:viewportHeight="288">
+
+    <group
+        android:scaleX="0.9"
+        android:scaleY="0.9"
+        android:translateX="14.4"
+        android:translateY="14.4">
+
+        <!-- Floating Pixel Dots -->
+        <path
+            android:pathData="M 46,66 h 12 a 3,3 0 0 1 3,3 v 12 a 3,3 0 0 1 -3,3 H 46 a 3,3 0 0 1 -3,-3 V 69 a 3,3 0 0 1 3,-3 z"
+            android:fillColor="#DC2626" />
+        <path
+            android:pathData="M 68,52 h 18 a 4,4 0 0 1 4,4 v 18 a 4,4 0 0 1 -4,4 H 68 a 4,4 0 0 1 -4,-4 V 56 a 4,4 0 0 1 4,-4 z"
+            android:fillColor="#E50914" />
+        <path
+            android:pathData="M 52,88 h 18 a 4,4 0 0 1 4,4 v 18 a 4,4 0 0 1 -4,4 H 52 a 4,4 0 0 1 -4,-4 V 92 a 4,4 0 0 1 4,-4 z"
+            android:fillColor="#DC2626" />
+        <path
+            android:pathData="M 78,82 h 12 a 3,3 0 0 1 3,3 v 12 a 3,3 0 0 1 -3,3 H 78 a 3,3 0 0 1 -3,-3 V 85 a 3,3 0 0 1 3,-3 z"
+            android:fillColor="#DC2626" />
+
+        <!-- Outer D Loop -->
+        <path
+            android:pathData="M 92,62 H 130 C 175,62 208,90 208,135 C 208,180 175,208 130,208 H 92 Z">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:startX="92"
+                    android:startY="62"
+                    android:endX="208"
+                    android:endY="208"
+                    android:type="linear">
+                    <item android:color="#E50914" android:offset="0.0" />
+                    <item android:color="#DC2626" android:offset="0.5" />
+                    <item android:color="#990000" android:offset="1.0" />
+                </gradient>
+            </aapt:attr>
+        </path>
+
+        <!-- Inner Flow Ribbon 1 -->
+        <path
+            android:pathData="M 116,88 C 135,88 158,98 168,112 C 150,116 130,122 116,132 Z">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:startX="116"
+                    android:startY="88"
+                    android:endX="168"
+                    android:endY="132"
+                    android:type="linear">
+                    <item android:color="#FF4D4D" android:offset="0.0" />
+                    <item android:color="#E50914" android:offset="1.0" />
+                </gradient>
+            </aapt:attr>
+        </path>
+
+        <!-- Dynamic Swoosh Ribbon 2 -->
+        <path
+            android:pathData="M 82,95 C 105,95 140,125 182,125 C 162,148 125,152 105,138 C 92,128 85,110 82,95 Z">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:startX="82"
+                    android:startY="95"
+                    android:endX="182"
+                    android:endY="152"
+                    android:type="linear">
+                    <item android:color="#FF2626" android:offset="0.0" />
+                    <item android:color="#DC2626" android:offset="0.6" />
+                    <item android:color="#990000" android:offset="1.0" />
+                </gradient>
+            </aapt:attr>
+        </path>
+
+        <!-- Bottom Wave Ribbon -->
+        <path
+            android:pathData="M 116,148 C 145,140 178,155 172,182 C 152,182 128,172 116,148 Z">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:startX="116"
+                    android:startY="148"
+                    android:endX="178"
+                    android:endY="182"
+                    android:type="linear">
+                    <item android:color="#B91C1C" android:offset="0.0" />
+                    <item android:color="#7F1D1D" android:offset="1.0" />
+                </gradient>
+            </aapt:attr>
+        </path>
+
+    </group>
+
+</vector>

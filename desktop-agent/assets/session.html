@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeskStream Session</title>
+    <script>
+        (() => {
+            const params = new URLSearchParams(window.location.search);
+            const requestedLayer = params.get("layer");
+            const layer = requestedLayer === "A" || requestedLayer === "B"
+                ? requestedLayer
+                : (params.get("integrated") === "1" ? "A" : "B");
+
+            params.set("layer", layer);
+            const page = layer === "A"
+                ? "controller_session.html"
+                : "remote_session.html";
+            const target = new URL(page, window.location.href);
+            target.search = params.toString();
+            target.hash = window.location.hash;
+            window.location.replace(target.toString());
+        })();
+    </script>
+</head>
+<body>
+    <noscript>DeskStream sessions require JavaScript to select the appropriate session page.</noscript>
+</body>
+</html>

@@ -1,0 +1,2258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeskStream Remote Session</title>
+    <script>
+        (() => {
+            const params = new URLSearchParams(window.location.search);
+            if (params.get("embed") === "1") return;
+            params.set("layer", "B");
+            params.set("overlay", "1");
+            const target = new URL("dashboard.html", window.location.href);
+            target.search = params.toString();
+            target.hash = window.location.hash;
+            window.location.replace(target.toString());
+        })();
+    </script>
+    <style>
+        :root { --text-dark: #0f172a; }
+        html.deskstream-overlay,
+        html.deskstream-overlay body,
+        html.deskstream-overlay #bSessionUiRoot,
+        html.deskstream-overlay #bSessionUiMount {
+            background: transparent !important;
+            background-color: transparent !important;
+            background-image: none !important;
+            border: 0 !important;
+            box-shadow: none !important;
+            margin: 0 !important;
+        }
+        body.deskstream-native-session-host #bSessionChatPanel {
+            display: none !important;
+        }
+        /* ============================================================
+           B-SIDE CONNECTED SESSION OVERLAY
+           The overlay window is always-on-top and transparent except
+           for the toolbar button and its open menu.
+        ============================================================ */
+
+        /* --- Overlay root container --- */
+        .floating-controls {
+            position: fixed;
+            top: 0;
+            right: 0;
+            z-index: 10000;
+            background: transparent;
+            border: none;
+            box-shadow: none;
+            backdrop-filter: none;
+            /* Children are laid out relative to the corner anchor */
+            display: block;
+            pointer-events: none;
+        }
+
+        /* Only the toolbar anchor and open menu receive pointer events */
+        .floating-controls > * {
+            pointer-events: auto;
+        }
+
+        /* --- Three-dot toggle button (drag handle + menu trigger) --- */
+        #optionsToggleBtn {
+            box-sizing: border-box;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 40px;
+            min-width: 40px;
+            height: 40px;
+            min-height: 40px;
+            padding: 0;
+            margin: 4px;
+            background: rgba(255, 255, 255, 0.97);
+            border: 1.5px solid rgba(148, 163, 184, 0.6);
+            border-radius: 50%;
+            box-shadow: 0 2px 10px rgba(15, 23, 42, 0.18), 0 1px 3px rgba(15, 23, 42, 0.10);
+            color: #334155;
+            cursor: grab;
+            transition: background 0.13s ease, border-color 0.13s ease, box-shadow 0.13s ease, transform 0.10s ease;
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        #optionsToggleBtn:hover {
+            background: #f8fafc;
+            border-color: #64748b;
+            box-shadow: 0 4px 16px rgba(15, 23, 42, 0.22);
+        }
+
+        #optionsToggleBtn:active {
+            background: #e2e8f0;
+            box-shadow: 0 1px 4px rgba(15, 23, 42, 0.16);
+            transform: scale(0.95);
+        }
+
+        #optionsToggleBtn.menu-open {
+            background: #1e293b;
+            border-color: #1e293b;
+            color: #fff;
+            box-shadow: 0 4px 14px rgba(15, 23, 42, 0.30);
+        }
+
+        #optionsToggleBtn.dragging-active {
+            cursor: grabbing;
+            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.28);
+            transform: scale(1.06);
+        }
+
+        #optionsToggleBtn svg {
+            display: block;
+            width: 18px;
+            height: 18px;
+            flex: none;
+            pointer-events: none;
+        }
+
+        /* --- Floating options menu --- */
+        /* The menu is fixed-positioned and repositioned by JS so it never
+           clips against any screen edge. It renders separately from the
+           button container so width does not affect the idle overlay size. */
+        #optionsMenu {
+            position: fixed;
+            top: 8px;
+            right: 56px; /* initial: to the left of a right-edge button */
+            z-index: 10001;
+            box-sizing: border-box;
+            width: 204px;
+            padding: 6px;
+            display: none;
+            flex-direction: column;
+            gap: 4px;
+            background: rgba(255, 255, 255, 0.98);
+            border: 1px solid rgba(148, 163, 184, 0.55);
+            border-radius: 14px;
+            box-shadow: 0 8px 32px rgba(15, 23, 42, 0.18), 0 2px 8px rgba(15, 23, 42, 0.08);
+            pointer-events: auto;
+            overflow: hidden;
+            /* Prevent the menu from extending beyond the viewport */
+            max-height: calc(100vh - 16px);
+            overflow-y: auto;
+        }
+
+        #optionsMenu.open {
+            display: flex;
+        }
+
+        /* --- Individual menu item rows --- */
+        /* Note: these do NOT extend .floating-btn to avoid padding/shadow conflicts */
+        .overlay-menu-item {
+            box-sizing: border-box;
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 10px;
+            width: 100%;
+            min-width: 0;
+            height: 38px;
+            min-height: 38px;
+            padding: 0 10px;
+            background: transparent;
+            border: 1px solid transparent;
+            border-radius: 8px;
+            font: 500 13.5px/1 system-ui, -apple-system, sans-serif;
+            color: #1e293b;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            cursor: pointer;
+            text-align: left;
+            transition: background 0.10s ease, border-color 0.10s ease;
+            flex-shrink: 0;
+        }
+
+        .overlay-menu-item:hover {
+            background: #f1f5f9;
+            border-color: rgba(148, 163, 184, 0.45);
+        }
+
+        .overlay-menu-item:active {
+            background: #e2e8f0;
+        }
+
+        .overlay-menu-item > svg {
+            display: block;
+            width: 16px;
+            height: 16px;
+            flex: 0 0 16px;
+            opacity: 0.75;
+        }
+
+        .overlay-menu-item .overlay-menu-label {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            flex: 1;
+        }
+
+        .overlay-menu-item .mic-state-label {
+            margin-left: auto;
+            flex-shrink: 0;
+            color: #64748b;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+        }
+
+        .overlay-menu-item.mic-enabled {
+            color: #15803d;
+            background: rgba(134, 239, 172, 0.12);
+        }
+
+        .overlay-menu-item.mic-enabled > svg {
+            opacity: 1;
+        }
+
+        .overlay-menu-item.mic-enabled .mic-state-label {
+            color: #15803d;
+        }
+
+        .overlay-menu-item.danger {
+            color: #dc2626;
+        }
+
+        .overlay-menu-item.danger > svg {
+            opacity: 0.85;
+        }
+
+        .overlay-menu-item.danger:hover {
+            background: #fef2f2;
+            border-color: rgba(252, 165, 165, 0.4);
+        }
+
+        .overlay-menu-item:disabled,
+        .overlay-menu-item[disabled] {
+            cursor: wait;
+            opacity: 0.55;
+            pointer-events: none;
+        }
+
+        /* Thin separator before Disconnect */
+        .overlay-menu-separator {
+            height: 1px;
+            background: rgba(148, 163, 184, 0.3);
+            margin: 2px 4px;
+            flex-shrink: 0;
+        }
+
+        /* --- Dragging state --- */
+        .floating-controls.dragging #optionsMenu {
+            /* Close the menu instantly when dragging starts */
+            display: none !important;
+        }
+
+        /* --- Legacy .floating-btn (used only for the toggle button itself) --- */
+        /* Keep this class for backwards compatibility but restrict it to just
+           the toggle button context so it does not pollute menu items. */
+        #optionsToggleBtn.floating-btn {
+            /* toggle button already has full custom styles above; this is a no-op */
+        }
+
+        /* --- Health badge (hidden in native overlay mode) --- */
+        #bSessionHealth {
+            display: inline-block;
+            padding: 4px 8px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.94);
+            color: #334155;
+            font-size: 11px;
+            white-space: nowrap;
+        }
+
+        /* --- Session overlay visibility --- */
+        #bSessionOverlay {
+            display: none;
+        }
+
+        #bSessionOverlay.active {
+            display: block;
+        }
+
+        /* --- Chat panel --- */
+        #bSessionChatPanel {
+            position: fixed;
+            top: 56px;
+            right: 16px;
+            width: 300px;
+            max-height: calc(100vh - 72px);
+            background: #fff;
+            border-radius: 10px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+            z-index: 10002;
+            display: none;
+            flex-direction: column;
+            overflow: hidden;
+            pointer-events: auto;
+            color: #111827;
+        }
+        #bSessionChatPanel.open { display: flex; pointer-events: auto; }
+        #bSessionChatPanel .chat-header {
+            background: #f9fafb;
+            padding: 12px;
+            font-weight: bold;
+            border-bottom: 1px solid #e5e5e5;
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85rem;
+        }
+        #bSessionChatPanel .chat-close {
+            border: 0;
+            background: transparent;
+            cursor: pointer;
+            color: #6b7280;
+            font-size: 1.25rem;
+        }
+        #bSessionChatMessages {
+            flex: 0 1 250px;
+            height: 250px;
+            overflow-y: auto;
+            padding: 12px;
+            font-size: 0.8rem;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            background: white;
+        }
+        #bSessionTypingIndicator {
+            display: none;
+            padding: 0 12px 8px;
+            color: #6b7280;
+            font-size: 0.75rem;
+            font-style: italic;
+        }
+        #bSessionTypingIndicator.visible { display: block; }
+        #bSessionChatPanel .msg {
+            padding: 8px 12px;
+            border-radius: 8px;
+            max-width: 85%;
+            overflow-wrap: anywhere;
+        }
+        #bSessionChatPanel .msg.sent {
+            background: #eff6ff;
+            align-self: flex-end;
+            color: #1e3a8a;
+        }
+        #bSessionChatPanel .msg.recv {
+            background: #f3f4f6;
+            align-self: flex-start;
+            color: #111827;
+        }
+        #bSessionChatForm {
+            display: flex;
+            border-top: 1px solid #e5e5e5;
+        }
+        #bSessionChatInput {
+            flex: 1;
+            min-width: 0;
+            padding: 10px;
+            border: 0;
+            outline: 0;
+            font-size: 0.8rem;
+            background: white;
+            color: #111827;
+        }
+        #bSessionChatForm button {
+            background: #ef4444;
+            border: 0;
+            color: white;
+            padding: 0 12px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.8rem;
+        }
+        /* Kept: body.b-session-active sidebar remains visible */
+    </style>
+</head>
+<body>
+    <div id="bSessionUiRoot">
+    <!-- B-Side Chat Panel (moved out of the huge overlay) -->
+        <section id="bSessionChatPanel" class="chat-panel" aria-label="Session chat">
+            <div class="chat-header">
+                <span>Session Chat</span>
+                <button class="chat-close" type="button" onclick="toggleBSessionChat()" aria-label="Close chat">&times;</button>
+            </div>
+            <div id="bSessionChatMessages" class="chat-messages" aria-live="polite"></div>
+            <div id="bSessionTypingIndicator" aria-live="polite">Remote user is typing…</div>
+            <form id="bSessionChatForm" class="chat-input">
+                <textarea id="bSessionChatInput" maxlength="65535" autocomplete="off" placeholder="Type a message..." style="resize: none; height: 36px; padding-top: 8px; font-family: inherit; font-size: 0.9rem;"></textarea>
+                <button type="submit" id="bSessionChatSubmitBtn">Send</button>
+            </form>
+        </section>
+    <div id="bReversePermissionDialog" role="alertdialog" aria-modal="false"
+        style="display:none;position:fixed;left:20px;bottom:20px;z-index:11000;width:min(360px,calc(100vw - 40px));pointer-events:auto;">
+        <div style="padding:16px;background:#fff;border:1px solid #e2e8f0;border-radius:14px;box-shadow:0 12px 32px rgba(15,23,42,.22);color:#111827;">
+            <h2 style="margin:0 0 8px;font-size:1rem;">Reverse control request</h2>
+            <p style="margin:0 0 14px;color:#4b5563;font-size:.9rem;line-height:1.45;">The remote controller is requesting to reverse the session. Accepting will end this connection and start a new session in the opposite direction.</p>
+            <div style="display:flex;justify-content:flex-end;gap:8px;">
+                <button type="button" class="btn" onclick="answerBReverseRequest(false)">Reject</button>
+                <button type="button" class="btn" onclick="answerBReverseRequest(true)">Accept</button>
+            </div>
+        </div>
+    </div>
+    <div id="bSessionTransferChoiceDialog" role="dialog" aria-modal="true"
+        style="display:none;position:fixed;inset:0;z-index:11001;background:rgba(15,23,42,.35);align-items:center;justify-content:center;padding:20px;pointer-events:auto;">
+        <div style="width:min(360px,100%);padding:20px;background:#fff;border-radius:14px;box-shadow:0 16px 40px rgba(15,23,42,.22);color:#111827;">
+            <h2 style="margin:0 0 16px;font-size:1rem;">Choose what to send</h2>
+            <div style="display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;">
+                <button type="button" class="btn" onclick="selectBSessionTransfer('file')">Select Files</button>
+                <button type="button" class="btn btn-primary" onclick="selectBSessionTransfer('folder')">Select Folder</button>
+                <button type="button" class="btn" onclick="closeBSessionTransferChoice()">Cancel</button>
+            </div>
+        </div>
+    </div>
+    <div id="bSessionEndedDialog" role="dialog" aria-modal="true" aria-labelledby="bSessionEndedTitle"
+        style="display:none;position:fixed;inset:0;z-index:10003;background:rgba(15,23,42,.45);align-items:center;justify-content:center;pointer-events:auto;">
+        <div style="width:min(380px,calc(100vw - 32px));padding:24px;background:#fff;border-radius:12px;box-shadow:0 20px 50px rgba(15,23,42,.25);color:#111827;">
+            <h2 id="bSessionEndedTitle" style="margin:0 0 10px;font-size:1.1rem;">Session Ended</h2>
+            <p style="margin:0 0 20px;color:#4b5563;">This session has ended.</p>
+            <div style="display:flex;justify-content:flex-end;">
+                <button type="button" class="btn btn-primary" onclick="dismissBSessionEnded()">OK</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="bSessionFileApprovalDialog" role="dialog" aria-modal="true"
+        style="display:none;position:fixed;inset:0;z-index:12001;background:rgba(15,23,42,.45);align-items:center;justify-content:center;pointer-events:auto;">
+        <div style="width:min(400px,calc(100vw - 32px));padding:24px;background:#fff;border-radius:12px;box-shadow:0 20px 50px rgba(15,23,42,.25);color:#111827;">
+            <h2 id="fileApprovalTitle" style="margin:0 0 10px;font-size:1.1rem;">Incoming File Transfer</h2>
+            <p id="fileApprovalMessage" style="margin:0 0 20px;color:#4b5563;word-wrap:break-word;">Accept file?</p>
+            <div style="display:flex;justify-content:flex-end;gap:8px;">
+                <button type="button" class="btn" id="btnRejectFile">Reject</button>
+                <button type="button" class="btn btn-primary" id="btnAllowFile">Allow</button>
+                <button type="button" class="btn btn-primary" id="btnAllowAllFiles" style="display:none;">Allow All</button>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- B-Side Overlay Container -->
+    <!-- The floating-controls wrapper is display:block so its own bounds only
+         cover the 48x48 toggle button. The menu (#optionsMenu) is fixed-
+         positioned independently so it never clips the overlay window. -->
+    <div id="bSessionOverlay" class="floating-controls">
+        <!-- Health badge: visible in non-overlay (dashboard) context only -->
+        <div id="bSessionHealth" role="status" title="Heartbeat diagnostics">Connecting · Ping N/A</div>
+
+        <!-- Three-dot drag handle + menu trigger -->
+        <button id="optionsToggleBtn" type="button"
+                title="Drag to move · Click for session options"
+                aria-label="Session options"
+                aria-expanded="false"
+                aria-haspopup="menu">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <circle cx="12" cy="5" r="2"></circle>
+                <circle cx="12" cy="12" r="2"></circle>
+                <circle cx="12" cy="19" r="2"></circle>
+            </svg>
+        </button>
+    </div>
+
+    <!-- Options menu — fixed-positioned; JS repositions it next to the button -->
+    <div id="optionsMenu" role="menu" aria-label="Session options" aria-hidden="true">
+        <button class="overlay-menu-item" id="bOverlayChatBtn" type="button" role="menuitem" title="Chat"
+                onclick="if(typeof toggleBSessionChat==='function'){toggleBSessionChat();}else if(window.ipc){window.ipc.postMessage('toggle_b_chat');} closeBOptions();">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+            </svg>
+            <span class="overlay-menu-label">Chat</span>
+        </button>
+        <button class="overlay-menu-item" id="bOverlayFileTransferBtn" type="button" role="menuitem" title="File Transfer"
+                onclick="showBSessionTransferChoice(); closeBOptions();">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
+                <polyline points="13 2 13 9 20 9"></polyline>
+            </svg>
+            <span class="overlay-menu-label">File Transfer</span>
+        </button>
+        <button class="overlay-menu-item mic-muted" id="bMicBtn" type="button" role="menuitem"
+                title="Enable microphone" aria-label="Enable microphone" aria-pressed="false"
+                onclick="if(typeof toggleBSessionMic==='function'){toggleBSessionMic();}else if(window.ipc){window.ipc.postMessage('toggle_b_mic');}">
+            <!-- Standard microphone icon with mute-slash overlay -->
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <rect x="9" y="2" width="6" height="11" rx="3"></rect>
+                <path d="M19 10v1a7 7 0 0 1-14 0v-1"></path>
+                <line x1="12" y1="18" x2="12" y2="22"></line>
+                <line x1="8" y1="22" x2="16" y2="22"></line>
+                <line id="bMicMutedSlash" x1="3" y1="3" x2="21" y2="21" style="display:inline;"></line>
+            </svg>
+            <span class="overlay-menu-label">Microphone</span>
+            <span class="mic-state-label" id="bMicStateLabel">Muted</span>
+        </button>
+        <button class="overlay-menu-item" id="bOverlayRevBtn" type="button" role="menuitem" title="Request reverse control"
+                onclick="if(typeof requestBSessionReverse==='function'){requestBSessionReverse();}else if(window.ipc){window.ipc.postMessage('request_b_reverse');} closeBOptions();">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <polyline points="17 1 21 5 17 9"></polyline>
+                <path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
+                <polyline points="7 23 3 19 7 15"></polyline>
+                <path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
+            </svg>
+            <span class="overlay-menu-label">Reverse</span>
+        </button>
+        <div class="overlay-menu-separator" role="separator"></div>
+        <button class="overlay-menu-item danger" id="bDisconnectBtn" type="button" role="menuitem" title="Disconnect session"
+                onclick="handleBSessionDisconnectClick(event)">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M10 15l-3-3 3-3"></path>
+                <path d="M7 12h14"></path>
+                <path d="M21 5H3"></path>
+                <path d="M21 19H3"></path>
+            </svg>
+            <span class="overlay-menu-label" id="bDisconnectLabel">Disconnect</span>
+        </button>
+    </div>
+    </div>
+    <script type="text/x-deskstream-runtime">
+        let _bSessionChatPoll = null;
+
+        (function() {
+            const overlay = document.getElementById('bSessionOverlay');
+            const menu    = document.getElementById('optionsMenu');
+            if (!overlay) return;
+
+            // ── Drag state ──────────────────────────────────────────────────
+            // Drag logic uses pointer capture on the button so the drag stays
+            // smooth even when the pointer leaves the element.
+            // A click is suppressed when the accumulated displacement exceeds
+            // the DRAG_THRESHOLD, preventing the menu from toggling on drag-end.
+            const DRAG_THRESHOLD = 5; // px
+            let dragState = null;
+            let dragController = null;
+            let overlayDragController = null;
+            const handle = document.getElementById('optionsToggleBtn');
+
+            const stopDrag = (wasDragging) => {
+                const pointerId = dragState?.pointerId;
+                dragState = null;
+                if (dragController) {
+                    dragController.abort();
+                    dragController = null;
+                }
+                if (pointerId !== undefined && handle?.hasPointerCapture?.(pointerId)) {
+                    try { handle.releasePointerCapture(pointerId); }
+                    catch (e) { /* ignore */ }
+                }
+                handle?.classList.remove('dragging-active');
+                overlay.classList.remove('dragging');
+                if (wasDragging) {
+                    // Reposition the menu to wherever the button now is
+                    positionBOptionsMenu();
+                    syncBOverlayLayout();
+                }
+            };
+
+            const installOverlayDrag = () => {
+                if (!handle || overlayDragController) return;
+                overlayDragController = new AbortController();
+                const outerSignal = overlayDragController.signal;
+
+                // Suppress click on the handle when a drag just ended
+                handle.addEventListener('click', event => {
+                    if (dragState?._suppressClick) {
+                        event.preventDefault();
+                        event.stopImmediatePropagation();
+                        dragState._suppressClick = false;
+                    }
+                }, { capture: true, signal: outerSignal });
+
+                handle.addEventListener('pointerdown', event => {
+                    // Only react to the primary button (left-click / touch)
+                    if (event.button !== 0 && event.pointerType === 'mouse') return;
+                    stopDrag(false);
+
+                    const isNative = window.location.search.includes('overlay=1')
+                                     && typeof window.ipc?.postMessage === 'function';
+                    const rect = overlay.getBoundingClientRect();
+                    dragState = {
+                        pointerId: event.pointerId,
+                        startX:    event.clientX,
+                        startY:    event.clientY,
+                        originLeft: rect.left,
+                        originTop:  rect.top,
+                        isDragging: false,
+                        native: isNative,
+                        _suppressClick: false
+                    };
+
+                    if (!isNative) {
+                        try { handle.setPointerCapture(event.pointerId); }
+                        catch (e) { /* ignore */ }
+                    }
+
+                    dragController = new AbortController();
+                    const signal = dragController.signal;
+
+                    window.addEventListener('pointermove', moveEvent => {
+                        if (!dragState || moveEvent.pointerId !== dragState.pointerId) return;
+                        const dx = moveEvent.clientX - dragState.startX;
+                        const dy = moveEvent.clientY - dragState.startY;
+
+                        if (!dragState.isDragging
+                            && (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD)) {
+                            dragState.isDragging = true;
+                            dragState._suppressClick = true;
+
+                            // Close the menu immediately so the overlay window can
+                            // shrink back to idle size before the OS drag begins.
+                            if (menu && menu.classList.contains('open')) {
+                                menu.classList.remove('open');
+                                menu.setAttribute('aria-hidden', 'true');
+                                handle.classList.remove('menu-open');
+                                handle.setAttribute('aria-expanded', 'false');
+                                syncBOverlayLayout();
+                            }
+
+                            handle.classList.add('dragging-active');
+
+                            if (dragState.native) {
+                                window.ipc.postMessage('drag_overlay');
+                            } else {
+                                overlay.classList.add('dragging');
+                            }
+                        }
+
+                        if (dragState.isDragging && !dragState.native) {
+                            moveEvent.preventDefault();
+                            // Clamp within the viewport
+                            const btnW = overlay.offsetWidth  || 48;
+                            const btnH = overlay.offsetHeight || 48;
+                            const maxLeft = Math.max(0, window.innerWidth  - btnW);
+                            const maxTop  = Math.max(0, window.innerHeight - btnH);
+                            const left = Math.min(Math.max(0, dragState.originLeft + dx), maxLeft);
+                            const top  = Math.min(Math.max(0, dragState.originTop  + dy), maxTop);
+                            overlay.style.left   = `${left}px`;
+                            overlay.style.top    = `${top}px`;
+                            overlay.style.right  = 'auto';
+                            overlay.style.bottom = 'auto';
+                        }
+                    }, { signal, passive: true });
+
+                    const finishPointer = pointerEvent => {
+                        if (pointerEvent.pointerId !== dragState?.pointerId) return;
+                        const wasDrag = dragState?.isDragging ?? false;
+                        stopDrag(wasDrag);
+                    };
+                    window.addEventListener('pointerup',     finishPointer, { signal });
+                    window.addEventListener('pointercancel', finishPointer, { signal });
+                    window.addEventListener('blur', () => stopDrag(false), { signal, once: true });
+                    handle.addEventListener('lostpointercapture', () => stopDrag(dragState?.isDragging ?? false),
+                                            { signal, once: true });
+                }, { signal: outerSignal });
+
+                // Click handler — toggle menu only when NOT a drag
+                handle.addEventListener('click', event => {
+                    event.stopPropagation();
+                    toggleBOptions();
+                }, { signal: outerSignal });
+
+                window.addEventListener('blur', () => stopDrag(false), { signal: outerSignal });
+            };
+
+            const cancelOverlayDrag = () => {
+                stopDrag(false);
+                if (overlayDragController) {
+                    overlayDragController.abort();
+                    overlayDragController = null;
+                }
+            };
+            window.deskStreamBCancelOverlayDrag = cancelOverlayDrag;
+            window.deskStreamBInstallOverlayDrag = installOverlayDrag;
+            installOverlayDrag();
+
+            if (window.location.search.includes('overlay=1')) {
+                document.documentElement.classList.add('deskstream-overlay');
+                document.documentElement.style.background = 'transparent';
+                document.documentElement.style.pointerEvents = 'none';
+                document.body.style.background = 'transparent';
+                document.body.style.pointerEvents = 'none';
+                document.body.style.overflow = 'hidden';
+                document.body.style.margin = '0';
+
+                // In native overlay mode, hide everything except the toolbar
+                // button and the options menu (which is fixed-positioned).
+                Array.from(document.body.children).forEach(child => {
+                    const keep = child.id === 'bSessionOverlay'
+                                 || child.id === 'optionsMenu'
+                                 || child.id === 'bSessionUiMount'
+                                 || child.id === 'bSessionChatPanel'
+                                 || child.tagName === 'SCRIPT'
+                                 || child.tagName === 'STYLE';
+                    if (!keep) child.style.display = 'none';
+                });
+
+                // Hide the health badge — it's only useful in dashboard context
+                const health = document.getElementById('bSessionHealth');
+                if (health) health.style.display = 'none';
+
+                // Position the overlay anchor in the top-right corner
+                overlay.style.display  = 'block';
+                overlay.style.position = 'fixed';
+                overlay.style.top      = '0';
+                overlay.style.right    = '0';
+                overlay.style.left     = 'auto';
+                overlay.style.bottom   = 'auto';
+                overlay.style.pointerEvents = 'auto';
+
+                // The menu lives outside the overlay div so it's always
+                // fixed-positioned and doesn't expand the overlay window.
+                if (menu) {
+                    menu.style.pointerEvents = 'auto';
+                }
+
+                syncBOverlayLayout();
+            }
+        })();
+
+            function renderBConnectionHealth(health) {
+                const element = document.getElementById('bSessionHealth');
+                if (!element) return;
+                const inSession = health.in_session === true;
+                const details = inSession ? health.session_health : health.relay_health;
+                const state = details?.state || 'Disconnected';
+                const missed = Number(details?.missed_count) || 0;
+                const rtt = details?.rtt_ms;
+                const maxAttempts = Number(health.reconnect_max_attempts);
+                const attempt = Math.max(1, Number(health.reconnect_attempt) || 1);
+                const retryStatus = maxAttempts > 0 ? `attempt ${attempt}/${maxAttempts}` : `attempt ${attempt}; retrying`;
+                let label;
+                if (inSession && state === 'Healthy') {
+                    label = rtt === null || rtt === undefined
+                        ? 'Connected · Ping N/A'
+                        : `Connected · Ping ${Number(rtt)} ms`;
+                } else if (inSession && state === 'Degraded') {
+                    label = `Degraded · Ping timeout ${missed}/3`;
+                } else if (inSession && state === 'Lost') {
+                    label = health.reconnect_state === 'Reconnecting'
+                        ? `Connection lost · Reconnecting (${retryStatus})`
+                        : `Connection lost · Ping timeout ${missed}/3`;
+                } else if (health.disconnect_reason === 'explicit_user_disconnect'
+                    || health.disconnect_reason === 'explicit_session_end') {
+                    label = 'Disconnected by user';
+                } else if (health.disconnect_reason === 'remote_disconnect_ambiguous') {
+                    label = health.reconnect_state === 'Reconnecting'
+                        ? `Session ended or connection lost · Agent retrying relay (${retryStatus})`
+                        : 'Session ended or connection lost · reason unknown';
+                } else if (health.disconnect_reason === 'authorization_rejected') {
+                    label = 'Authorization rejected';
+                } else if (health.reconnect_state === 'Reconnecting') {
+                    label = `Reconnecting (${retryStatus})`;
+                } else if (health.reconnect_state === 'Disconnected' && Number(health.reconnect_max_attempts) > 0) {
+                    label = 'Disconnected · Retry required';
+                } else if (state === 'Healthy' && rtt !== null && rtt !== undefined) {
+                    label = `Agent online · Relay ping ${Number(rtt)} ms`;
+                } else {
+                    label = 'Connecting · Ping N/A';
+                }
+                const lastSuccess = details?.last_success_ms
+                    ? new Date(Number(details.last_success_ms)).toLocaleString()
+                    : 'N/A';
+                const reason = details?.last_failure_reason || health.disconnect_reason || 'none';
+                element.textContent = label;
+                element.title = `State: ${state}; last successful ping: ${lastSuccess}; missed: ${missed}/3; reason: ${reason}`;
+                element.dataset.state = state.toLowerCase();
+            }
+
+            let lastBRoleDiagnostic = '';
+            let bRoleDiagnosticRunning = false;
+            const logBRoleDiagnostic = async () => {
+                if (bRoleDiagnosticRunning) return;
+                bRoleDiagnosticRunning = true;
+                try {
+                    const response = await fetchHealth();
+                    if (!response.ok) throw new Error(`Health check failed: ${response.status}`);
+                    const health = await response.json();
+                    renderBConnectionHealth(health);
+                    const inSession = health.in_session === true;
+                    const fullNav = Boolean(document.querySelector('.sidebar'));
+                    const floatingControls = inSession
+                        && Boolean(document.getElementById('bSessionOverlay'))
+                    && document.getElementById('bSessionOverlay').style.display !== 'none';
+                    const state = health.state || (inSession ? 'CONNECTED' : 'IDLE');
+                    const diagnosticKey = `${state}:${inSession}:${fullNav}:${floatingControls}`;
+                    if (diagnosticKey === lastBRoleDiagnostic) return;
+                    lastBRoleDiagnostic = diagnosticKey;
+                    console.info(
+                        `[SESSION-ROLE] system_id=${health.system_id || 'unavailable'} ` +
+                        `session_id=${health.session_id || 'not-provided-by-protocol'} ` +
+                        `local_device=${health.local_device || health.system_id || 'unavailable'} ` +
+                        `remote_device=${health.remote_device || 'unavailable'} role=${health.role || 'REMOTE'} ` +
+                        `state=${state} isController=false isRemote=true in_session=${inSession} ` +
+                        `fullNav=${fullNav} floatingControls=${floatingControls}`
+                    );
+                } catch (error) {
+                    console.error('[SESSION-ROLE] Remote session diagnostics failed:', error);
+                } finally {
+                    bRoleDiagnosticRunning = false;
+                }
+            };
+            void logBRoleDiagnostic();
+            const bRoleDiagnosticTimer = setInterval(logBRoleDiagnostic, 1000);
+            window.addEventListener('pagehide', () => clearInterval(bRoleDiagnosticTimer), { once: true });
+
+            // ── Menu open/close helpers ─────────────────────────────────
+            // positionBOptionsMenu() places the fixed-position menu next to
+            // the toggle button, clamped to remain within the viewport.
+            window.positionBOptionsMenu = function() {
+                const btn  = document.getElementById('optionsToggleBtn');
+                const menu = document.getElementById('optionsMenu');
+                if (!btn || !menu) return;
+                const btnRect  = btn.getBoundingClientRect();
+                const menuW    = menu.offsetWidth  || 204;
+                const menuH    = menu.offsetHeight || 220;
+                const vw       = window.innerWidth;
+                const vh       = window.innerHeight;
+                const GAP      = 6;
+
+                // Prefer: open to the left of the button
+                let left = btnRect.left - menuW - GAP;
+                let top  = btnRect.top;
+
+                // If that would clip the left edge, open to the right instead
+                if (left < 4) {
+                    left = btnRect.right + GAP;
+                }
+                // Clamp right edge
+                if (left + menuW > vw - 4) {
+                    left = vw - menuW - 4;
+                }
+                // Clamp top/bottom
+                if (top + menuH > vh - 4) {
+                    top = Math.max(4, vh - menuH - 4);
+                }
+                if (top < 4) top = 4;
+
+                menu.style.left = `${left}px`;
+                menu.style.top  = `${top}px`;
+                // Clear the initial right-based position after first positioning
+                menu.style.right = 'auto';
+            };
+
+            window.closeBOptions = function() {
+                const btn  = document.getElementById('optionsToggleBtn');
+                const menu = document.getElementById('optionsMenu');
+                if (!menu) return;
+                menu.classList.remove('open');
+                menu.setAttribute('aria-hidden', 'true');
+                btn?.classList.remove('menu-open');
+                btn?.setAttribute('aria-expanded', 'false');
+                syncBOverlayLayout();
+            };
+
+            window.toggleBOptions = function() {
+                const btn  = document.getElementById('optionsToggleBtn');
+                const menu = document.getElementById('optionsMenu');
+                if (!menu) return;
+                const opening = !menu.classList.contains('open');
+                if (opening) {
+                    menu.classList.add('open');
+                    menu.setAttribute('aria-hidden', 'false');
+                    btn?.classList.add('menu-open');
+                    btn?.setAttribute('aria-expanded', 'true');
+                    positionBOptionsMenu();
+                    setBOverlayLayout('menu');
+                } else {
+                    closeBOptions();
+                }
+            };
+
+            window.handleBSessionDisconnectClick = function(event) {
+                if (event) event.stopPropagation();
+                const button = document.getElementById('bDisconnectBtn');
+                if (button?.disabled) return _bSessionDisconnectPromise || Promise.resolve(false);
+                if (!_bSessionActive) {
+                    _dismissBSessionOverlay();
+                    return Promise.resolve(true);
+                }
+                if (typeof disconnectBSession !== 'function') {
+                    showToast('Could not disconnect: the session controller is unavailable.');
+                    return Promise.resolve(false);
+                }
+                if (button) {
+                    button.disabled = true;
+                    const label = button.querySelector('#bDisconnectLabel');
+                    if (label) label.textContent = 'Disconnecting…';
+                }
+                closeBOptions();
+                // The dashboard-wide helper closes the native overlay immediately,
+                // which can destroy this WebView before its async Type 99 request runs.
+                return disconnectBSession(null, 'END_SESSION_BUTTON');
+            };
+
+            // Close menu when clicking outside of it or the button
+            window.addEventListener('pointerdown', (e) => {
+                const btn  = document.getElementById('optionsToggleBtn');
+                const menu = document.getElementById('optionsMenu');
+                if (menu && menu.classList.contains('open')
+                    && !menu.contains(e.target)
+                    && btn && !btn.contains(e.target)) {
+                    closeBOptions();
+                }
+            }, { capture: true });
+
+            window.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') closeBOptions();
+            });
+
+        /* ============================================================
+           B-SIDE SESSION FUNCTIONS
+        ============================================================ */
+        let _bSessionTimerInterval = null;
+        let _bSessionStartTime = null;
+        let _bSessionWatchdog = null;
+        let _bSessionActive = false;
+        let _bSessionSidebar = null;
+        let _bSessionDisconnecting = false;
+        let _bSessionDisconnectPromise = null;
+        let _bSessionGeneration = 0;
+        let _bSessionController = null;
+        let _bSessionChatPollRunning = false;
+        let _bSessionTypingPollRunning = false;
+        let _bSessionEndedDialogShown = false;
+        let _bNativeOverlaySessionToken = Number(
+            new URLSearchParams(window.location.search).get('overlay_session')
+        ) || null;
+        // Grace-period counter: require in_session=false for 2+ consecutive watchdog ticks
+        // before dismissing the session. This prevents false-positives during the brief
+        // relay TCP handshake window when in_session briefly reads false immediately after start.
+        let _bSessionWatchdogMissCount = 0;
+        const B_SESSION_WATCHDOG_MISS_THRESHOLD = 2;
+        let _bReverseHandoffPending = false;
+        let _bSessionTypingPoll = null;
+        let _bSessionOfferPoll = null;
+        let _bSessionChatLastId = 0n;
+        let _bLocalChatTyping = false;
+        let _bRemoteChatTyping = false;
+        let _bChatTypingIdleTimer = null;
+        const _bSessionChatRenderedIds = new Set();
+        const _bSessionHandledOffers = new Set();
+        const _bSessionOfferInFlight = new Set();
+        let _bFileApprovalResolve = null;
+        let _bReverseRequestPollRunning = false;
+        let _bReverseDecisionPollRunning = false;
+        let _bReverseAnswerInFlight = false;
+        let _bReverseRequestOutstanding = false;
+        let _bReverseRequestId = null;
+        let _bReversePeerSystemId = null;
+        let _bReverseRequestTimeout = null;
+        let _bChatTraceSequence = 0;
+
+        function findDesktopHost() {
+            let current = window;
+            while (current) {
+                try {
+                    if (current.__deskstreamDesktop
+                        && typeof current.ipc?.postMessage === 'function') {
+                        return current;
+                    }
+                    if (current === current.parent) break;
+                    current = current.parent;
+                } catch (error) {
+                    console.warn('[SESSION UI] Could not access the desktop host frame:', error);
+                    return null;
+                }
+            }
+            return null;
+        }
+
+        function setBOverlayLayout(layout) {
+            if (new URLSearchParams(window.location.search).get('overlay') !== '1'
+                || !window.ipc?.postMessage) return;
+            try {
+                window.ipc.postMessage(`overlay_layout:${layout}`);
+                const controls = [
+                    document.getElementById('optionsToggleBtn'),
+                    document.getElementById('optionsMenu'),
+                    document.getElementById('bSessionChatPanel'),
+                    ...[
+                        'bReversePermissionDialog',
+                        'bSessionTransferChoiceDialog',
+                        'bSessionEndedDialog',
+                        'bSessionFileApprovalDialog'
+                    ].map(id => document.getElementById(id))
+                ];
+                const rectangles = controls
+                    .filter(element => {
+                        if (!element || element.getClientRects().length === 0) return false;
+                        if (element.id === 'optionsMenu') return element.classList.contains('open');
+                        if (element.id === 'bSessionChatPanel') return element.classList.contains('open');
+                        if (element.id === 'optionsToggleBtn') return true;
+                        return element.style.display !== 'none';
+                    })
+                    .map(element => {
+                        const rect = element.getBoundingClientRect();
+                        return `${rect.left},${rect.top},${rect.width},${rect.height}`;
+                    });
+                window.ipc.postMessage(`overlay_region:${rectangles.join(';')}`);
+            } catch (error) {
+                console.error('[SESSION UI] Failed to update floating-control bounds:', error);
+            }
+        }
+
+        function syncBOverlayLayout() {
+            const optionsMenu = document.getElementById('optionsMenu');
+            if (optionsMenu?.classList.contains('open')) {
+                // Native overlay resizing is asynchronous; recalculate after the
+                // WebView receives its expanded viewport, before reporting regions.
+                window.positionBOptionsMenu?.();
+            }
+            if (document.getElementById('bSessionChatPanel')?.classList.contains('open')) {
+                setBOverlayLayout('chat');
+            } else if (optionsMenu?.classList.contains('open')) {
+                setBOverlayLayout('menu');
+            } else if ([
+                'bReversePermissionDialog',
+                'bSessionTransferChoiceDialog',
+                'bSessionEndedDialog',
+                'bSessionFileApprovalDialog'
+            ].some(id => {
+                const element = document.getElementById(id);
+                return element && element.style.display !== 'none';
+            })) {
+                setBOverlayLayout('panel');
+            } else {
+                setBOverlayLayout('idle');
+            }
+        }
+
+        if (new URLSearchParams(window.location.search).get('overlay') === '1') {
+            window.addEventListener('resize', () => {
+                requestAnimationFrame(syncBOverlayLayout);
+            });
+        }
+
+        function isCurrentBSession(generation) {
+            return _bSessionActive && generation === _bSessionGeneration;
+        }
+
+        function nextBChatTraceId() {
+            _bChatTraceSequence += 1;
+            return `CHAT-B-UI-${String(_bChatTraceSequence).padStart(8, '0')}`;
+        }
+
+        function createBReverseRequestId() {
+            const bytes = new Uint8Array(16);
+            crypto.getRandomValues(bytes);
+            return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+        }
+
+        function requestBReverseAutoAccept(peerSystemId, sessionToken, requestId) {
+            if (!window.ipc || !/^\d{9}$/.test(peerSystemId) || !requestId || !sessionToken) {
+                return Promise.reject(new Error('Reverse auto-approval cannot be prepared for this session.'));
+            }
+            return new Promise((resolve, reject) => {
+                const timeout = setTimeout(() => {
+                    window.removeEventListener('message', onResult);
+                    window.ipc.postMessage(`cancel_reverse_acceptance:${peerSystemId}:${sessionToken}:${requestId}`);
+                    reject(new Error('The peer-approval state was not confirmed before the handoff timeout.'));
+                }, 15000);
+                const onResult = event => {
+                    const result = event.data;
+                    if (event.source !== window
+                        || !result
+                        || result.type !== 'reverse_autoaccept_arm_result'
+                        || result.peer_id !== peerSystemId
+                        || result.request_id !== requestId) {
+                        return;
+                    }
+                    clearTimeout(timeout);
+                    window.removeEventListener('message', onResult);
+                    if (result.armed === true) {
+                        resolve(true);
+                    } else {
+                        window.ipc.postMessage(`cancel_reverse_acceptance:${peerSystemId}:${sessionToken}:${requestId}`);
+                        reject(new Error('The peer-approval state could not be armed.'));
+                    }
+                };
+                window.addEventListener('message', onResult);
+                window.ipc.postMessage(`arm_reverse_acceptance:${peerSystemId}:${sessionToken}:${requestId}`);
+            });
+        }
+
+        function cancelBReverseAutoAccept(peerSystemId, sessionToken, requestId) {
+            if (!window.ipc
+                || !/^\d{9}$/.test(String(peerSystemId || ''))
+                || !sessionToken
+                || !/^[A-Za-z0-9_-]{1,64}$/.test(String(requestId || ''))) {
+                return;
+            }
+            window.ipc.postMessage(`cancel_reverse_acceptance:${peerSystemId}:${sessionToken}:${requestId}`);
+        }
+
+        function setBSessionNavigationVisible(visible) {
+            // Do not remove the sidebar. 
+            // The dashboard layout must remain intact during a B-session.
+        }
+
+        async function syncBSessionStateFromHealth() {
+            const generation = _bSessionGeneration;
+            try {
+                const res = await fetchHealth();
+                if (!res.ok) throw new Error(`Session health request failed: ${res.status}`);
+                const health = await res.json();
+                if (generation !== _bSessionGeneration) return;
+                const hasLiveBSession = Boolean(health && health.in_session === true);
+                if (hasLiveBSession && !_bSessionActive) {
+                    _bSessionWatchdogMissCount = 0;
+                    enterBConnectedSession();
+                    return;
+                }
+                // Do NOT dismiss in syncBSessionStateFromHealth itself; the watchdog with its
+                // grace-period counter is responsible for orderly teardown.
+            } catch (error) {
+                console.warn('[SESSION] Could not synchronize B-session state:', error);
+            }
+        }
+
+        function enterBConnectedSession() {
+            if (_bSessionActive || !bSessionUiLoaded) return;
+            clearBReverseRequestTimeout();
+            _bSessionGeneration++;
+            const generation = _bSessionGeneration;
+            _bSessionController = new AbortController();
+            _bSessionDisconnectPromise = null;
+            _bSessionChatPollRunning = false;
+            _bSessionTypingPollRunning = false;
+            _bSessionOfferPollRunning = false;
+            _bReverseRequestPollRunning = false;
+            _bReverseDecisionPollRunning = false;
+            _bReverseAnswerInFlight = false;
+            _bReverseRequestOutstanding = false;
+            _bReverseRequestId = null;
+            _bReversePeerSystemId = null;
+            console.info('[SESSION] event=connected current_path=' + window.location.pathname +
+                ' session_id_exists=' + Boolean(localStorage.getItem('ds_session_token')) +
+                ' authenticated=' + isAuthenticated);
+            _bSessionActive = true;
+            setBSessionNavigationVisible(false);
+            _bSessionDisconnecting = false;
+            _bSessionEndedDialogShown = false;
+            _bReverseHandoffPending = false;
+            document.getElementById('bSessionEndedDialog').style.display = 'none';
+            _bSessionChatLastId = 0n;
+            _bSessionChatRenderedIds.clear();
+            _bSessionHandledOffers.clear();
+            _bSessionOfferInFlight.clear();
+            document.getElementById('bSessionChatMessages')?.replaceChildren();
+            _bLocalChatTyping = false;
+            _bRemoteChatTyping = false;
+            _bSessionMicEnabled = false;
+            renderBSessionMicState(false);
+            _bReverseRequestOutstanding = false;
+            const disconnectButton = document.getElementById('bDisconnectBtn');
+            if (disconnectButton) {
+                disconnectButton.disabled = false;
+                const label = disconnectButton.querySelector('#bDisconnectLabel');
+                if (label) label.textContent = 'Disconnect';
+            }
+            document.body.classList.add('b-session-active');
+            const desktopHost = findDesktopHost();
+            const pageParams = new URLSearchParams(window.location.search);
+            const isNativeOverlay = pageParams.get('overlay') === '1';
+            const isNativeHostApp = Boolean(desktopHost && !isNativeOverlay);
+            if (isNativeHostApp) {
+                // In native desktop agent, the separate transparent overlay window is the sole floating control.
+                // Keep the in-DOM clone inside the main dashboard hidden to prevent duplicate floating controls.
+                const overlay = document.getElementById('bSessionOverlay');
+                if (overlay) overlay.style.display = 'none';
+                document.body.classList.add('deskstream-native-session-host');
+                const currentToken = Number(desktopHost.__deskstreamBOverlaySession);
+                if (desktopHost.__deskstreamBOverlayOpen && Number.isSafeInteger(currentToken)) {
+                    _bNativeOverlaySessionToken = currentToken;
+                } else {
+                    const nextToken = (Number(desktopHost.__deskstreamBOverlayGeneration) || 0) + 1;
+                    desktopHost.__deskstreamBOverlayGeneration = nextToken;
+                    desktopHost.__deskstreamBOverlaySession = nextToken;
+                    desktopHost.__deskstreamBOverlayOpen = true;
+                    _bNativeOverlaySessionToken = nextToken;
+                    desktopHost.ipc.postMessage(`open_overlay:${nextToken}`);
+                }
+            } else {
+                // Standalone overlay window or browser fallback mode: show the in-DOM floating control.
+                const overlay = document.getElementById('bSessionOverlay');
+                if (overlay) overlay.style.display = 'block';
+                window.deskStreamBInstallOverlayDrag?.();
+            }
+            // Start session timer
+            _bSessionStartTime = Date.now();
+            if (_bSessionTimerInterval) clearInterval(_bSessionTimerInterval);
+            _bSessionTimerInterval = setInterval(function() {
+                const elapsed = Math.floor((Date.now() - _bSessionStartTime) / 1000);
+                const h = String(Math.floor(elapsed / 3600)).padStart(2, '0');
+                const m = String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0');
+                const s = String(elapsed % 60).padStart(2, '0');
+                const timerEl = document.getElementById('bSessionTimer');
+                if (timerEl) timerEl.textContent = h + ':' + m + ':' + s;
+            }, 1000);
+
+            // Watchdog: auto-dismiss overlay when Rust signals in_session=false
+            // (i.e., when the session ends on the controlled-device side).
+            // Requires 2 consecutive in_session=false readings before dismissing
+            // to avoid false-positives during the relay TCP handshake window.
+            _bSessionWatchdogMissCount = 0;
+            if (_bSessionWatchdog) clearInterval(_bSessionWatchdog);
+            _bSessionWatchdog = setInterval(async () => {
+                try {
+                    const healthResponse = await fetchHealth();
+                    if (!healthResponse.ok) return;
+                    const health = await healthResponse.json();
+                    if (health && health.in_session === false) {
+                        if (_bReverseHandoffPending) return;
+                        _bSessionWatchdogMissCount++;
+                        if (_bSessionWatchdogMissCount >= 2) {
+                            clearInterval(_bSessionWatchdog);
+                            _bSessionWatchdog = null;
+                            _dismissBSessionOverlay();
+                            showBSessionEnded();
+                        }
+                    } else {
+                        _bSessionWatchdogMissCount = 0;
+                    }
+                } catch (e) { /* ignore transient fetch errors */ }
+            }, 2000);
+            pollBSessionChat().catch(error => {
+                if (isCurrentBSession(generation)) console.error('[CHAT] Initial history load failed:', error);
+            });
+            _bSessionChatPoll = setInterval(() => pollBSessionChat().catch(error => {
+                if (isCurrentBSession(generation)) console.error('[CHAT] Poll failed:', error);
+            }), 300);
+            pollBSessionRemoteTyping().catch(error => {
+                if (isCurrentBSession(generation)) console.error('[CHAT] Initial typing state failed:', error);
+            });
+            _bSessionTypingPoll = setInterval(() => pollBSessionRemoteTyping().catch(error => {
+                if (isCurrentBSession(generation)) console.error('[CHAT] Typing state poll failed:', error);
+            }), 250);
+            _bSessionOfferPoll = setInterval(() => pollBSessionFileOffers().catch(error => {
+                if (isCurrentBSession(generation)) console.error('[FILE] Offer poll failed:', error);
+            }), 500);
+        }
+
+        function _dismissBSessionOverlay(closeNativeWindow = true) {
+            const desktopHost = findDesktopHost();
+            const pageParams = new URLSearchParams(window.location.search);
+            const isNativeOverlay = pageParams.get('overlay') === '1';
+            const sessionToken = _bNativeOverlaySessionToken
+                || Number(pageParams.get('overlay_session'))
+                || null;
+            if (desktopHost && sessionToken
+                && (desktopHost.__deskstreamBOverlaySession === sessionToken || isNativeOverlay)) {
+                if (desktopHost.__deskstreamBOverlaySession === sessionToken) {
+                    desktopHost.__deskstreamBOverlayOpen = false;
+                }
+                if (closeNativeWindow) desktopHost.ipc.postMessage(`close_overlay:${sessionToken}`);
+            }
+            _bNativeOverlaySessionToken = null;
+            if (!_bSessionActive) return;
+            _bSessionActive = false;
+            _bSessionGeneration++;
+            if (_bSessionController) {
+                _bSessionController.abort();
+                _bSessionController = null;
+            }
+            window.deskStreamBCancelOverlayDrag?.();
+            if (_bFileApprovalResolve) _bFileApprovalResolve('cancel');
+            const overlay = document.getElementById('bSessionOverlay');
+            if (overlay) overlay.style.display = 'none';
+            stopBSessionChatTyping();
+            _bSessionWatchdogMissCount = 0;
+            setBSessionNavigationVisible(true);
+            _bSessionDisconnecting = false;
+            _bSessionDisconnectPromise = null;
+            clearBReverseRequestTimeout();
+            _bReverseHandoffPending = false;
+            _bSessionChatPollRunning = false;
+            _bSessionTypingPollRunning = false;
+            _bSessionOfferPollRunning = false;
+            _bReverseRequestPollRunning = false;
+            _bReverseDecisionPollRunning = false;
+            _bReverseAnswerInFlight = false;
+            _bReverseRequestOutstanding = false;
+            _bReverseRequestId = null;
+            _bReversePeerSystemId = null;
+            currentFolderBatch = null;
+            currentFolderAllowAll = false;
+            currentFolderFilesReceived = 0;
+            if (_bSessionMicEnabled) {
+                fetch('/desktop-api/session/audio', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled: false })
+                }).catch(error => console.error('[MIC] Failed to stop microphone:', error));
+            }
+            _bSessionMicEnabled = false;
+            renderBSessionMicState(false);
+            _bReverseRequestOutstanding = false;
+            document.getElementById('bReversePermissionDialog').style.display = 'none';
+            const disconnectButton = document.getElementById('bDisconnectBtn');
+            if (disconnectButton) {
+                disconnectButton.disabled = false;
+                const label = disconnectButton.querySelector('#bDisconnectLabel');
+                if (label) label.textContent = 'Disconnect';
+            }
+            document.body.classList.remove('b-session-active');
+            document.getElementById('bSessionChatPanel')?.classList.remove('open');
+            document.getElementById('bSessionChatMessages')?.replaceChildren();
+            // Close the options menu cleanly using the class-based helper
+            if (typeof closeBOptions === 'function') {
+                closeBOptions();
+            } else {
+                const m = document.getElementById('optionsMenu');
+                if (m) { m.classList.remove('open'); m.setAttribute('aria-hidden', 'true'); }
+                const b = document.getElementById('optionsToggleBtn');
+                if (b) { b.classList.remove('menu-open'); b.setAttribute('aria-expanded', 'false'); }
+            }
+            document.getElementById('bSessionTransferChoiceDialog')?.style.setProperty('display', 'none');
+            if (_bSessionTimerInterval) { clearInterval(_bSessionTimerInterval); _bSessionTimerInterval = null; }
+            if (_bSessionWatchdog) { clearInterval(_bSessionWatchdog); _bSessionWatchdog = null; }
+            if (_bSessionChatPoll) { clearInterval(_bSessionChatPoll); _bSessionChatPoll = null; }
+            if (_bSessionTypingPoll) { clearInterval(_bSessionTypingPoll); _bSessionTypingPoll = null; }
+            if (_bSessionOfferPoll) { clearInterval(_bSessionOfferPoll); _bSessionOfferPoll = null; }
+            _bSessionChatLastId = 0n;
+            _bSessionChatRenderedIds.clear();
+            _bSessionOfferInFlight.clear();
+            _bLocalChatTyping = false;
+            _bRemoteChatTyping = false;
+            renderBSessionRemoteTyping();
+            _bSessionStartTime = null;
+            const timerEl = document.getElementById('bSessionTimer');
+            if (timerEl) timerEl.textContent = '00:00:00';
+            _bSessionHandledOffers.clear();
+        }
+
+        window.deskStreamBSession = {
+            enter: enterBConnectedSession,
+            dismiss: _dismissBSessionOverlay,
+            sync: syncBSessionStateFromHealth,
+            get isActive() {
+                return _bSessionActive;
+            },
+            get isReverseHandoffPending() {
+                return _bReverseHandoffPending;
+            }
+        };
+
+        function showBSessionEnded() {
+            if (_bSessionEndedDialogShown) return;
+            _bSessionEndedDialogShown = true;
+            if (_bSessionWatchdog) {
+                clearInterval(_bSessionWatchdog);
+                _bSessionWatchdog = null;
+            }
+            _dismissBSessionOverlay();
+            document.getElementById('bSessionEndedDialog').style.display = 'flex';
+        }
+
+        function dismissBSessionEnded() {
+            document.getElementById('bSessionEndedDialog').style.display = 'none';
+            _dismissBSessionOverlay();
+        }
+
+        function disconnectBSession(reverseTargetId = null, source = 'END_SESSION_BUTTON', reverseRequestId = null) {
+                if (_bSessionDisconnectPromise) return _bSessionDisconnectPromise;
+                if (!_bSessionActive || _bSessionDisconnecting) return Promise.resolve(false);
+                stopBSessionChatTyping();
+                _bSessionDisconnecting = true;
+                const generation = _bSessionGeneration;
+                const handoffRequestId = reverseTargetId
+                    ? (reverseRequestId || createBReverseRequestId())
+                    : null;
+                if (reverseTargetId) _bReverseHandoffPending = true;
+                const button = document.getElementById('bDisconnectBtn');
+                if (button) {
+                    button.disabled = true;
+                    const label = button.querySelector('#bDisconnectLabel');
+                    if (label) label.textContent = 'Disconnecting...';
+                }
+                const operation = (async () => {
+                    const finishEndedSession = async () => {
+                        if (reverseTargetId) {
+                            showToast('Approval received. Ending the current session while the peer reconnects in the opposite direction.');
+                            const pageParams = new URLSearchParams(window.location.search);
+                            if (pageParams.get('overlay') === '1' && window.ipc) {
+                                _dismissBSessionOverlay(false);
+                                const sessionToken = pageParams.get('overlay_session') || '';
+                                window.ipc.postMessage(`complete_reverse_host_handoff:${reverseTargetId}:${sessionToken}:${handoffRequestId}`);
+                            } else {
+                                _dismissBSessionOverlay();
+                                showToast('The reverse handoff requires the DeskStream session overlay; no replacement connection was started.');
+                            }
+                        } else {
+                            showBSessionEnded();
+                        }
+                        return true;
+                    };
+                    try {
+                        const initialHealthResponse = await fetchHealth();
+                        if (!isCurrentBSession(generation)) return false;
+                        if (!initialHealthResponse.ok) {
+                            throw new Error(`Session status request failed: ${initialHealthResponse.status}`);
+                        }
+                        const initialHealth = await initialHealthResponse.json();
+                        if (!isCurrentBSession(generation)) return false;
+                        if (initialHealth.in_session === false) {
+                            return await finishEndedSession();
+                        }
+
+                        const response = await fetch('/desktop-api/session/disconnect', {
+                            method: 'POST',
+                            headers: { 'X-DeskStream-Diagnostic-Source': source },
+                            signal: _bSessionController?.signal
+                        });
+                        if (!isCurrentBSession(generation)) return false;
+                        if (!response.ok) {
+                            throw new Error(`Disconnect request failed: ${response.status} ${await response.text()}`);
+                        }
+                        showToast('Disconnecting session...');
+
+                        const deadline = Date.now() + 15000;
+                        while (Date.now() < deadline && isCurrentBSession(generation)) {
+                            await new Promise(resolve => setTimeout(resolve, 250));
+                            if (!isCurrentBSession(generation)) return false;
+                            const healthResponse = await fetchHealth();
+                            if (!isCurrentBSession(generation)) return false;
+                            if (!healthResponse.ok) {
+                                throw new Error(`Session status request failed: ${healthResponse.status}`);
+                            }
+                            const health = await healthResponse.json();
+                            if (!isCurrentBSession(generation)) return false;
+                            if (health.in_session === false) {
+                                return await finishEndedSession();
+                            }
+                        }
+                        if (!isCurrentBSession(generation)) return false;
+                        throw new Error('The agent did not confirm that the session ended.');
+                    } catch (error) {
+                        if (!isCurrentBSession(generation)) return false;
+                        console.error('[SESSION] Disconnect failed:', error);
+                        _bSessionDisconnecting = false;
+                        _bReverseHandoffPending = false;
+                        if (button) {
+                            button.disabled = false;
+                            const label = button.querySelector('#bDisconnectLabel');
+                            if (label) label.textContent = 'Disconnect';
+                        }
+                        showToast(`Could not disconnect session: ${error.message || 'the agent did not confirm termination'}`);
+                        return false;
+                    }
+                })();
+                const trackedOperation = operation.finally(() => {
+                    if (_bSessionDisconnectPromise === trackedOperation) _bSessionDisconnectPromise = null;
+                });
+                _bSessionDisconnectPromise = trackedOperation;
+                return trackedOperation;
+        }
+
+        function toggleBSessionChat() {
+            if (!_bSessionActive || _bSessionDisconnecting) return;
+            const panel = document.getElementById('bSessionChatPanel');
+            panel?.classList.toggle('open');
+            if (panel?.classList.contains('open')) {
+                setBOverlayLayout('chat');
+                pollBSessionChat().catch(error => console.error('[CHAT] History refresh failed:', error));
+                renderBSessionRemoteTyping();
+                document.getElementById('bSessionChatInput')?.focus();
+            } else {
+                stopBSessionChatTyping();
+                syncBOverlayLayout();
+            }
+        }
+
+        function renderBSessionRemoteTyping() {
+            document.getElementById('bSessionTypingIndicator')
+                ?.classList.toggle('visible', _bRemoteChatTyping && document.getElementById('bSessionChatPanel')?.classList.contains('open'));
+        }
+
+        function setBSessionRemoteTyping(typing) {
+            _bRemoteChatTyping = typing;
+            renderBSessionRemoteTyping();
+        }
+
+        async function setBSessionChatTyping(typing) {
+            if (_bLocalChatTyping === typing) return;
+            _bLocalChatTyping = typing;
+            const generation = _bSessionGeneration;
+            try {
+                const response = await fetch('/desktop-api/session/typing', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ typing })
+                });
+                if (!response.ok) throw new Error(`Typing update failed: ${response.status}`);
+            } catch (error) {
+                if (generation === _bSessionGeneration) _bLocalChatTyping = false;
+                if (_bSessionActive && generation === _bSessionGeneration) {
+                    console.error('[CHAT] Failed to update typing state:', error);
+                }
+            }
+        }
+
+        function stopBSessionChatTyping() {
+            if (_bChatTypingIdleTimer) {
+                clearTimeout(_bChatTypingIdleTimer);
+                _bChatTypingIdleTimer = null;
+            }
+            void setBSessionChatTyping(false);
+        }
+
+        function updateBSessionChatTyping() {
+            if (!_bSessionActive || _bSessionDisconnecting) return;
+            const input = document.getElementById('bSessionChatInput');
+            if (!input?.value.trim()) {
+                stopBSessionChatTyping();
+                return;
+            }
+            void setBSessionChatTyping(true);
+            if (_bChatTypingIdleTimer) clearTimeout(_bChatTypingIdleTimer);
+            _bChatTypingIdleTimer = setTimeout(stopBSessionChatTyping, 900);
+        }
+
+        async function pollBSessionRemoteTyping() {
+            if (!_bSessionActive || _bSessionTypingPollRunning) return;
+            _bSessionTypingPollRunning = true;
+            const generation = _bSessionGeneration;
+            try {
+                const response = await fetch('/desktop-api/session/typing', {
+                    signal: _bSessionController?.signal
+                });
+                if (!response.ok) throw new Error(`Typing state request failed: ${response.status}`);
+                const state = await response.json();
+                if (isCurrentBSession(generation)) setBSessionRemoteTyping(state.typing === true);
+            } finally {
+                if (generation === _bSessionGeneration) _bSessionTypingPollRunning = false;
+            }
+        }
+
+        function appendBSessionChat(message) {
+            const messageId = String(message.id);
+            if (_bSessionChatRenderedIds.has(messageId)) return;
+            const messages = document.getElementById('bSessionChatMessages');
+            if (!messages) throw new Error('Session chat message container is unavailable.');
+            const messageSequence = BigInt(message.id);
+            const item = document.createElement('div');
+            item.className = `msg ${message.from_local ? 'sent' : 'recv'}`;
+            item.dataset.messageId = messageId;
+            item.textContent = message.text;
+            messages.appendChild(item);
+            _bSessionChatRenderedIds.add(messageId);
+            if (!message.from_local) {
+                document.getElementById('bSessionChatPanel')?.classList.add('open');
+                setBOverlayLayout('chat');
+            }
+            messages.scrollTop = messages.scrollHeight;
+            return messageSequence;
+        }
+
+        async function pollBSessionChat() {
+            if (!_bSessionActive || _bSessionChatPollRunning) return;
+            _bSessionChatPollRunning = true;
+            const generation = _bSessionGeneration;
+            try {
+                const response = await fetch(`/desktop-api/session/messages?after=${_bSessionChatLastId}`, {
+                    signal: _bSessionController?.signal
+                });
+                if (!response.ok) throw new Error(`Chat poll failed: ${response.status}`);
+                const messages = await response.json();
+                if (!isCurrentBSession(generation)) return;
+                for (const message of messages) {
+                    if (!isCurrentBSession(generation)) return;
+                    if (!_bSessionChatRenderedIds.has(String(message.id))) {
+                        console.info(`[CHAT TRACE] trace_id=CHAT-B-UI-RX-${message.id} side=B direction=A_TO_B stage=UI_RECEIVED message_id=${message.id}`);
+                    }
+                    const messageId = BigInt(message.id);
+                    appendBSessionChat(message);
+                    if (messageId > _bSessionChatLastId) {
+                        _bSessionChatLastId = messageId;
+                    }
+                }
+            } finally {
+                if (generation === _bSessionGeneration) _bSessionChatPollRunning = false;
+            }
+        }
+
+        bSessionUiReady.then(() => {
+            const chatForm = document.getElementById('bSessionChatForm');
+            const bSessionChatInput = document.getElementById('bSessionChatInput');
+            if (!chatForm || !bSessionChatInput) {
+                throw new Error('Remote session chat controls are missing.');
+            }
+
+            let _bSessionChatSending = false;
+
+            async function submitBSessionChat(event) {
+                if (event && event.preventDefault) event.preventDefault();
+                if (!_bSessionActive || _bSessionDisconnecting || _bSessionChatSending) return;
+                const input = document.getElementById('bSessionChatInput');
+                if (!input) return;
+                const message = input.value.trim();
+                if (!message) return;
+
+                _bSessionChatSending = true;
+                const generation = _bSessionGeneration;
+                const traceId = nextBChatTraceId();
+                console.info(`[CHAT TRACE] trace_id=${traceId} side=B direction=B_TO_A stage=UI_SEND payload_bytes=${new TextEncoder().encode(message).length}`);
+                stopBSessionChatTyping();
+
+                const submitBtn = document.querySelector('#bSessionChatForm button[type="submit"]') || document.getElementById('bSessionChatSubmitBtn');
+                if (submitBtn) submitBtn.disabled = true;
+
+                try {
+                    const response = await fetch('/desktop-api/session/chat', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-DeskStream-Trace-Id': traceId
+                        },
+                        body: JSON.stringify({ message }),
+                        signal: _bSessionController?.signal
+                    });
+                    if (!isCurrentBSession(generation)) return;
+                    if (!response.ok) {
+                        const error = await response.text();
+                        showToast(`Chat send failed: ${error}`);
+                        return;
+                    }
+                    const result = await response.json();
+                    if (!isCurrentBSession(generation)) return;
+                    console.info(`[CHAT TRACE] trace_id=${traceId} side=B direction=B_TO_A stage=LOCAL_API_ACCEPTED message_id=${result.message.id}`);
+                    appendBSessionChat(result.message);
+                    input.value = '';
+                } catch (error) {
+                    if (isCurrentBSession(generation)) {
+                        showToast(`Chat send error: ${error.message}`);
+                    }
+                } finally {
+                    _bSessionChatSending = false;
+                    if (submitBtn) submitBtn.disabled = false;
+                }
+            }
+            window.submitBSessionChat = submitBSessionChat;
+
+            chatForm.addEventListener('submit', submitBSessionChat);
+            bSessionChatInput.addEventListener('input', updateBSessionChatTyping);
+            bSessionChatInput.addEventListener('keydown', event => {
+                if (event.isComposing) return;
+                if (event.key === 'Enter') {
+                    if (event.shiftKey) {
+                        // Allow multiline text insertion on Shift+Enter
+                        return;
+                    }
+                    event.preventDefault();
+                    submitBSessionChat(event);
+                }
+            });
+        }).catch(error => {
+            console.error('[CHAT] Remote session controls could not be initialized:', error);
+        });
+
+        let currentFolderBatch = null;
+        let currentFolderAllowAll = false;
+        let currentFolderFilesReceived = 0;
+
+        function showFileApprovalModal(offer, isFolder, folderName) {
+            return new Promise(resolve => {
+                const dialog = document.getElementById('bSessionFileApprovalDialog');
+                const title = document.getElementById('fileApprovalTitle');
+                const message = document.getElementById('fileApprovalMessage');
+                const btnReject = document.getElementById('btnRejectFile');
+                const btnAllow = document.getElementById('btnAllowFile');
+                const btnAllowAll = document.getElementById('btnAllowAllFiles');
+
+                message.replaceChildren();
+                if (isFolder) {
+                    title.textContent = 'Incoming Folder Transfer';
+                    message.append(document.createTextNode('Folder: '));
+                    const folderLabel = document.createElement('b');
+                    folderLabel.textContent = folderName;
+                    message.append(folderLabel, document.createElement('br'));
+                    message.append(document.createTextNode('File: '));
+                    const fileLabel = document.createElement('b');
+                    fileLabel.textContent = offer.filename;
+                    message.append(fileLabel, document.createElement('br'));
+                    message.append(document.createTextNode(`File ${currentFolderFilesReceived + 1} of Folder`), document.createElement('br'), document.createElement('br'));
+                    message.append(document.createTextNode(`Size: ${offer.size} bytes`));
+                    btnAllowAll.style.display = 'inline-block';
+                } else {
+                    title.textContent = 'Incoming File Transfer';
+                    message.append(document.createTextNode('Accept file '));
+                    const fileLabel = document.createElement('b');
+                    fileLabel.textContent = offer.filename;
+                    message.append(fileLabel, document.createTextNode(` (${offer.size} bytes)?`), document.createElement('br'));
+                    message.append(document.createTextNode('It will be saved in Downloads\\DeskStream.'));
+                    btnAllowAll.style.display = 'none';
+                }
+
+                dialog.style.display = 'flex';
+                setBOverlayLayout('panel');
+
+                const cleanup = () => {
+                    dialog.style.display = 'none';
+                    btnReject.onclick = null;
+                    btnAllow.onclick = null;
+                    btnAllowAll.onclick = null;
+                    syncBOverlayLayout();
+                };
+
+                const finish = choice => {
+                    if (_bFileApprovalResolve === finish) _bFileApprovalResolve = null;
+                    cleanup();
+                    resolve(choice);
+                };
+                _bFileApprovalResolve = finish;
+                btnReject.onclick = () => finish('reject');
+                btnAllow.onclick = () => finish('allow');
+                btnAllowAll.onclick = () => finish('allow_all');
+            });
+        }
+
+        let _bSessionOfferPollRunning = false;
+        async function pollBSessionFileOffers() {
+            if (!_bSessionActive || _bSessionDisconnecting || _bSessionOfferPollRunning) return;
+            _bSessionOfferPollRunning = true;
+            const generation = _bSessionGeneration;
+            try {
+                const response = await fetch('/desktop-api/session/offers', {
+                    signal: _bSessionController?.signal
+                });
+                if (!response.ok) throw new Error(`File offer poll failed: ${response.status}`);
+                const offers = await response.json();
+                for (const offer of offers) {
+                    if (!isCurrentBSession(generation)) return;
+                    const transferId = String(offer.transfer_id);
+                    const offerKey = `${generation}:${transferId}`;
+                    if (_bSessionHandledOffers.has(offerKey) || _bSessionOfferInFlight.has(offerKey)) continue;
+                    _bSessionOfferInFlight.add(offerKey);
+                    try {
+                        const traceId = `FILE-B-UI-${transferId}`;
+                        console.info(`[FILE TRACE] trace_id=${traceId} session_id=${offer.session_id || 'active'} transfer_id=${transferId} side=B direction=A_TO_B stage=OFFER_RECEIVED type=20 filename_bytes=${new TextEncoder().encode(offer.filename).length} file_bytes=${offer.size}`);
+                        
+                        const filenamePath = offer.filename.replace(/\\/g, '/');
+                        const isFolderBatch = filenamePath.includes('/');
+                        const folderName = isFolderBatch ? filenamePath.split('/')[0] : null;
+
+                        let accept = false;
+                        let countFolderFile = false;
+
+                        if (isFolderBatch) {
+                            if (currentFolderBatch !== folderName) {
+                                currentFolderBatch = folderName;
+                                currentFolderAllowAll = false;
+                                currentFolderFilesReceived = 0;
+                            }
+
+                            if (currentFolderAllowAll) {
+                                accept = true;
+                                countFolderFile = true;
+                            } else {
+                                const choice = await showFileApprovalModal(offer, true, folderName);
+                                if (!isCurrentBSession(generation)) return;
+                                if (choice === 'allow_all') {
+                                    currentFolderAllowAll = true;
+                                    accept = true;
+                                    countFolderFile = true;
+                                } else if (choice === 'allow') {
+                                    accept = true;
+                                    countFolderFile = true;
+                                }
+                            }
+                        } else {
+                            currentFolderBatch = null;
+                            currentFolderAllowAll = false;
+                            currentFolderFilesReceived = 0;
+                            const choice = await showFileApprovalModal(offer, false, null);
+                            if (!isCurrentBSession(generation)) return;
+                            accept = (choice === 'allow');
+                        }
+
+                        if (!isCurrentBSession(generation)) return;
+                        console.info(`[FILE RX OFFER] direction=A->B transfer_id=${transferId} filename=${JSON.stringify(offer.filename)} total_bytes=${offer.size} decision=${accept ? 'accept' : 'reject'}`);
+                        const decision = await fetch('/desktop-api/session/offer', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ transfer_id: offer.transfer_id, accept }),
+                            signal: _bSessionController?.signal
+                        });
+                        if (!isCurrentBSession(generation)) return;
+                        console.info(`[FILE TRACE] trace_id=${traceId} session_id=${offer.session_id || 'active'} transfer_id=${transferId} side=B direction=B_TO_A stage=${accept ? 'ACCEPT_SENT' : 'REJECT_SENT'} type=${accept ? 26 : 25} decision_http=${decision.status}`);
+                        if (!decision.ok) {
+                            const error = await decision.text();
+                            console.error(`[FILE RX OFFER] direction=A->B transfer_id=${transferId} response_failed=${decision.status} error=${error}`);
+                            showToast(`File offer response failed: ${error}`);
+                            currentFolderAllowAll = false;
+                        } else {
+                            if (decision.ok && countFolderFile) currentFolderFilesReceived++;
+                            _bSessionHandledOffers.add(offerKey);
+                        }
+                    } finally {
+                        _bSessionOfferInFlight.delete(offerKey);
+                    }
+                }
+                if (!isCurrentBSession(generation)) return;
+                await pollBSessionReverseRequest();
+                if (_bReverseRequestOutstanding) await pollBSessionReverseDecision();
+            } finally {
+                if (generation === _bSessionGeneration) _bSessionOfferPollRunning = false;
+            }
+        }
+
+        function showBSessionTransferChoice() {
+            document.getElementById('bSessionTransferChoiceDialog').style.display = 'flex';
+            setBOverlayLayout('panel');
+        }
+
+        function closeBSessionTransferChoice() {
+            document.getElementById('bSessionTransferChoiceDialog').style.display = 'none';
+            syncBOverlayLayout();
+        }
+
+        function selectBSessionTransfer(kind) {
+            closeBSessionTransferChoice();
+            if (!window.ipc) {
+                showToast('File picker is available in the DeskStream desktop app.');
+                return;
+            }
+            window.ipc.postMessage(kind === 'folder' ? 'send_folder' : 'send_file');
+        }
+
+        let _bSessionMicEnabled = false;
+
+        function clearBReverseRequestTimeout() {
+            if (_bReverseRequestTimeout) {
+                clearTimeout(_bReverseRequestTimeout);
+                _bReverseRequestTimeout = null;
+            }
+        }
+
+        function renderBSessionMicState(enabled) {
+            const button = document.getElementById('bMicBtn');
+            if (!button) return;
+            button.classList.toggle('mic-enabled', enabled);
+            button.classList.toggle('mic-muted', !enabled);
+            button.setAttribute('aria-pressed', String(enabled));
+            button.setAttribute('aria-label', enabled ? 'Mute microphone' : 'Enable microphone');
+            button.title = enabled ? 'Mute microphone' : 'Enable microphone';
+            const slash = document.getElementById('bMicMutedSlash');
+            if (slash) slash.style.display = enabled ? 'none' : 'inline';
+            const stateLabel = document.getElementById('bMicStateLabel');
+            if (stateLabel) stateLabel.textContent = enabled ? 'On' : 'Muted';
+        }
+
+        async function toggleBSessionMic() {
+            if (!_bSessionActive || _bSessionDisconnecting) return;
+            const nextEnabled = !_bSessionMicEnabled;
+            const button = document.getElementById('bMicBtn');
+            if (button) button.disabled = true;
+            try {
+                const response = await fetch('/desktop-api/session/audio', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled: nextEnabled })
+                });
+                if (!response.ok) {
+                    throw new Error(await response.text() || `HTTP ${response.status}`);
+                }
+                _bSessionMicEnabled = nextEnabled;
+                renderBSessionMicState(nextEnabled);
+            } catch (error) {
+                console.error('[MIC] Failed to update microphone capture:', error);
+                showToast(`Microphone update failed: ${error.message || 'check audio device permissions'}`);
+            } finally {
+                if (button) button.disabled = false;
+            }
+        }
+
+        async function requestBSessionReverse() {
+            if (!_bSessionActive || _bSessionDisconnecting || _bReverseRequestOutstanding) return;
+            const generation = _bSessionGeneration;
+            const requestId = createBReverseRequestId();
+            let requestMayHaveBeenQueued = false;
+            _bReverseRequestOutstanding = true;
+            _bReverseHandoffPending = true;
+            _bReverseRequestId = requestId;
+            try {
+                const healthResponse = await fetchHealth();
+                if (!isCurrentBSession(generation)) return;
+                if (!healthResponse.ok) {
+                    throw new Error(`Active session validation failed: ${healthResponse.status}`);
+                }
+                const health = await healthResponse.json();
+                if (!isCurrentBSession(generation)) return;
+                const peerSystemId = String(health.remote_device || '');
+                if (health.in_session !== true || !/^\d{9}$/.test(peerSystemId)) {
+                    throw new Error('No active session with a valid peer identity.');
+                }
+                _bReversePeerSystemId = peerSystemId;
+                console.info(`[REVERSE TRACE] role=HOST direction=SEND message_type=30 request_id=${requestId} active_session_id=unavailable peer_system_id=${peerSystemId} result=begin`);
+                requestMayHaveBeenQueued = true;
+                const response = await fetch('/desktop-api/session/reverse', {
+                    method: 'POST',
+                    headers: { 'X-DeskStream-Reverse-Request-Id': requestId },
+                    signal: _bSessionController?.signal
+                });
+                if (!isCurrentBSession(generation)) return;
+                if (!response.ok) {
+                    console.warn(`[REVERSE TRACE] role=HOST direction=SEND message_type=30 request_id=${requestId} active_session_id=unavailable peer_system_id=${peerSystemId} result=rejected status=${response.status}`);
+                    if (requestMayHaveBeenQueued) {
+                        try {
+                            const cancelResponse = await fetch('/desktop-api/session/reverse/cancel', {
+                                method: 'POST',
+                                headers: { 'X-DeskStream-Reverse-Request-Id': requestId },
+                                signal: _bSessionController?.signal
+                            });
+                            if (!cancelResponse.ok && cancelResponse.status !== 409) {
+                                throw new Error(`Reverse cancellation failed: ${cancelResponse.status}`);
+                            }
+                        } catch (cancelError) {
+                            console.error('[REVERSE] Could not clear a request after an unsuccessful send response:', cancelError);
+                        }
+                    }
+                    _bReverseRequestOutstanding = false;
+                    _bReverseHandoffPending = false;
+                    _bReverseRequestId = null;
+                    _bReversePeerSystemId = null;
+                    showToast(`Reverse request failed: ${await response.text()}`);
+                    return;
+                }
+                const sent = await response.json();
+                if (!isCurrentBSession(generation)) return;
+                if (sent.success !== true
+                    || sent.request_id !== requestId
+                    || sent.peer_system_id !== peerSystemId) {
+                    throw new Error('Reverse request response did not match the active session and request.');
+                }
+                console.info(`[REVERSE TRACE] role=HOST direction=SEND message_type=30 request_id=${requestId} active_session_id=unavailable peer_system_id=${peerSystemId} result=queued wire_request_id=not_carried_by_protocol`);
+                showToast('Reverse-control request sent. The controller must approve it.');
+                _bReverseRequestTimeout = setTimeout(() => {
+                    if (!isCurrentBSession(generation) || !_bReverseRequestOutstanding) return;
+                    _bReverseRequestTimeout = null;
+                    const expiredRequestId = _bReverseRequestId;
+                    const expiredPeerSystemId = _bReversePeerSystemId;
+                    _bReverseRequestOutstanding = false;
+                    _bReverseHandoffPending = false;
+                    _bReverseRequestId = null;
+                    _bReversePeerSystemId = null;
+                    console.warn(`[REVERSE TRACE] role=HOST direction=LOCAL message_type=30 request_id=${expiredRequestId || 'none'} active_session_id=unavailable peer_system_id=${expiredPeerSystemId || 'none'} result=expired`);
+                    fetch('/desktop-api/session/reverse/cancel', {
+                        method: 'POST',
+                        headers: { 'X-DeskStream-Reverse-Request-Id': expiredRequestId || '' },
+                        signal: _bSessionController?.signal
+                    }).then(response => {
+                        if (!response.ok) throw new Error(`Reverse cancellation failed: ${response.status}`);
+                    }).catch(error => {
+                        if (isCurrentBSession(generation)) {
+                            console.error('[REVERSE] Could not clear the timed-out request:', error);
+                        }
+                    });
+                    fetchHealth().then(async healthResponse => {
+                        if (!isCurrentBSession(generation)) return;
+                        if (!healthResponse.ok) {
+                            showToast('Reverse request expired, but relay status could not be confirmed.');
+                            return;
+                        }
+                        const health = await healthResponse.json();
+                        if (!isCurrentBSession(generation)) return;
+                        if (health.in_session !== true || health.relay_health?.state === 'Lost') {
+                            showToast('Relay disconnected during reversal. The session was not switched.');
+                            if (health.in_session === false) showBSessionEnded();
+                        } else {
+                            showToast('Reverse request expired. The current session was not switched.');
+                        }
+                    }).catch(error => {
+                        if (isCurrentBSession(generation)) {
+                            console.warn('[REVERSE] Could not refresh session state after timeout:', error);
+                            showToast('Reverse request expired. The current session was not switched.');
+                        }
+                    });
+                }, 30000);
+            } catch (error) {
+                if (!isCurrentBSession(generation)) return;
+                _bReverseRequestOutstanding = false;
+                _bReverseHandoffPending = false;
+                _bReverseRequestId = null;
+                _bReversePeerSystemId = null;
+                console.error('[REVERSE] Request failed:', error);
+                if (requestMayHaveBeenQueued) {
+                    try {
+                        const cancelResponse = await fetch('/desktop-api/session/reverse/cancel', {
+                            method: 'POST',
+                            headers: { 'X-DeskStream-Reverse-Request-Id': requestId },
+                            signal: _bSessionController?.signal
+                        });
+                        if (!cancelResponse.ok) {
+                            throw new Error(`Reverse cancellation failed: ${cancelResponse.status}`);
+                        }
+                    } catch (cancelError) {
+                        console.error('[REVERSE] Could not clear the failed request:', cancelError);
+                    }
+                }
+                showToast('Reverse request failed.');
+            }
+        }
+
+        async function pollBSessionReverseRequest() {
+            if (!_bSessionActive || _bSessionDisconnecting || _bReverseRequestPollRunning) return;
+            _bReverseRequestPollRunning = true;
+            const generation = _bSessionGeneration;
+            try {
+                const response = await fetch('/desktop-api/session/reverse/request', {
+                    signal: _bSessionController?.signal
+                });
+                if (!response.ok) throw new Error(`Reverse request poll failed: ${response.status}`);
+                const state = await response.json();
+                if (isCurrentBSession(generation) && state.pending) {
+                    if (_bReverseRequestOutstanding) {
+                        await answerBReverseRequest(false);
+                        if (isCurrentBSession(generation)) {
+                            showToast('A simultaneous reverse request was declined to keep session roles consistent.');
+                        }
+                    } else {
+                        document.getElementById('bReversePermissionDialog').style.display = 'flex';
+                        setBOverlayLayout('panel');
+                    }
+                }
+            } finally {
+                if (generation === _bSessionGeneration) _bReverseRequestPollRunning = false;
+            }
+        }
+
+        async function answerBReverseRequest(accepted) {
+            if (!_bSessionActive || _bSessionDisconnecting || _bReverseAnswerInFlight) return;
+            _bReverseAnswerInFlight = true;
+            if (accepted) _bReverseHandoffPending = true;
+            const generation = _bSessionGeneration;
+            try {
+                const response = await fetch('/desktop-api/session/reverse/decision', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ accepted }),
+                    signal: _bSessionController?.signal
+                });
+                if (!isCurrentBSession(generation)) return;
+                if (!response.ok) {
+                    if (accepted) _bReverseHandoffPending = false;
+                    showToast(`Reverse response failed: ${await response.text()}`);
+                    return;
+                }
+                document.getElementById('bReversePermissionDialog').style.display = 'none';
+                syncBOverlayLayout();
+                if (accepted) {
+                    const healthResponse = await fetchHealth();
+                    if (!isCurrentBSession(generation)) return;
+                    if (!healthResponse.ok) {
+                        throw new Error(`Session status request failed: ${healthResponse.status}`);
+                    }
+                    const health = await healthResponse.json();
+                    if (!isCurrentBSession(generation)) return;
+                    const peerSystemId = String(health.remote_device || '');
+                    if (!/^\d{9}$/.test(peerSystemId)) {
+                        _bReverseHandoffPending = false;
+                        showToast('Reverse request approved, but the peer ID is unavailable.');
+                        return;
+                    }
+                    await disconnectBSession(peerSystemId, 'REVERSE_HANDOFF');
+                }
+            } catch (error) {
+                if (!isCurrentBSession(generation)) return;
+                _bReverseHandoffPending = false;
+                console.error('[REVERSE] Could not start the approved reverse session:', error);
+                showToast('Could not start the approved reverse session.');
+            } finally {
+                if (generation === _bSessionGeneration) _bReverseAnswerInFlight = false;
+            }
+        }
+
+        async function pollBSessionReverseDecision() {
+            if (!_bSessionActive || _bSessionDisconnecting || !_bReverseRequestOutstanding || _bReverseDecisionPollRunning) return;
+            _bReverseDecisionPollRunning = true;
+            const generation = _bSessionGeneration;
+            let decisionReceived = 0;
+            let decisionAcknowledged = false;
+            let decisionRequestId = null;
+            let decisionPeerSystemId = null;
+            try {
+                const response = await fetch('/desktop-api/session/reverse/decision', {
+                    signal: _bSessionController?.signal
+                });
+                if (!response.ok) throw new Error(`Reverse decision poll failed: ${response.status}`);
+                const result = await response.json();
+                if (!isCurrentBSession(generation) || !_bReverseRequestOutstanding) return;
+                if (result.decision === 0) {
+                    if (result.request_id === _bReverseRequestId) return;
+                    const lostRequestId = _bReverseRequestId;
+                    console.error(`[REVERSE TRACE] role=HOST direction=LOCAL message_type=31 request_id=${lostRequestId || 'none'} active_session_id=unavailable peer_system_id=${_bReversePeerSystemId || 'none'} result=pending_state_missing`);
+                    _bReverseRequestOutstanding = false;
+                    _bReverseHandoffPending = false;
+                    clearBReverseRequestTimeout();
+                    _bReverseRequestId = null;
+                    _bReversePeerSystemId = null;
+                    showToast('Reverse response state was lost. The session was not switched.');
+                    return;
+                }
+                const requestId = _bReverseRequestId;
+                const peerSystemId = _bReversePeerSystemId;
+                decisionRequestId = requestId;
+                decisionPeerSystemId = peerSystemId;
+                if (!requestId
+                    || result.request_id !== requestId
+                    || !peerSystemId
+                    || result.peer_system_id !== peerSystemId) {
+                    console.error(`[REVERSE TRACE] role=HOST direction=RECV message_type=31 request_id=${result.request_id || 'none'} expected_request_id=${requestId || 'none'} active_session_id=unavailable peer_system_id=${result.peer_system_id || 'none'} expected_peer_system_id=${peerSystemId || 'none'} result=correlation_failed wire_request_id=not_carried_by_protocol`);
+                    _bReverseRequestOutstanding = false;
+                    _bReverseHandoffPending = false;
+                    clearBReverseRequestTimeout();
+                    _bReverseRequestId = null;
+                    _bReversePeerSystemId = null;
+                    fetch('/desktop-api/session/reverse/cancel', {
+                        method: 'POST',
+                        headers: { 'X-DeskStream-Reverse-Request-Id': requestId || '' },
+                        signal: _bSessionController?.signal
+                    }).then(cancelResponse => {
+                        if (!cancelResponse.ok) throw new Error(`Reverse cancellation failed: ${cancelResponse.status}`);
+                    }).catch(error => console.error('[REVERSE] Could not clear an unmatched decision:', error));
+                    showToast('Reverse approval could not be matched to this request; the session was not switched.');
+                    return;
+                }
+                if (result.decision !== 1 && result.decision !== 2) {
+                    throw new Error(`Malformed reverse decision: ${result.decision}`);
+                }
+                decisionReceived = result.decision;
+                const healthResponse = await fetchHealth();
+                if (!isCurrentBSession(generation)) return;
+                if (!healthResponse.ok) throw new Error(`Active session validation failed: ${healthResponse.status}`);
+                const health = await healthResponse.json();
+                if (!isCurrentBSession(generation)) return;
+                if (health.in_session !== true || String(health.remote_device || '') !== peerSystemId) {
+                    throw new Error('The active session or peer changed before the reverse approval was processed.');
+                }
+                const ackResponse = await fetch('/desktop-api/session/reverse/decision/ack', {
+                    method: 'POST',
+                    headers: { 'X-DeskStream-Reverse-Request-Id': requestId },
+                    signal: _bSessionController?.signal
+                });
+                if (!isCurrentBSession(generation)) return;
+                if (!ackResponse.ok) {
+                    throw new Error(`Could not acknowledge the validated reverse decision: ${ackResponse.status}`);
+                }
+                decisionAcknowledged = true;
+                clearBReverseRequestTimeout();
+                _bReverseRequestOutstanding = false;
+                _bReverseRequestId = null;
+                _bReversePeerSystemId = null;
+                if (result.decision === 1) {
+                    console.info(`[REVERSE TRACE] role=HOST direction=RECV message_type=31 request_id=${requestId} active_session_id=unavailable peer_system_id=${peerSystemId} result=approval_received_transition_start wire_request_id=not_carried_by_protocol`);
+                    if (!/^\d{9}$/.test(peerSystemId)) {
+                        _bReverseHandoffPending = false;
+                        showToast('Reverse request was approved, but the peer ID is unavailable.');
+                        return;
+                    }
+                    const handoffParams = new URLSearchParams(window.location.search);
+                    const handoffToken = handoffParams.get('overlay_session') || '';
+                    if (handoffParams.get('overlay') !== '1' || !window.ipc || !handoffToken) {
+                        _bReverseHandoffPending = false;
+                        showToast('Approval received, but this device cannot safely prepare the reverse connection.');
+                        console.error('[REVERSE] Refusing role teardown without a native overlay to arm peer approval.');
+                        return;
+                    }
+                    try {
+                        await requestBReverseAutoAccept(peerSystemId, handoffToken, requestId);
+                    } catch (error) {
+                        _bReverseHandoffPending = false;
+                        console.error('[REVERSE] Could not arm approval for the peer-initiated reconnection:', error);
+                        showToast('Approval received, but the reverse connection could not be prepared. The current session was kept active.');
+                        return;
+                    }
+                    console.info(`[REVERSE TRACE] role=HOST direction=LOCAL message_type=31 request_id=${requestId} active_session_id=unavailable peer_system_id=${peerSystemId} result=prepared_to_accept_reverse_request`);
+                    const handoffAttempted = await disconnectBSession(peerSystemId, 'REMOTE_SESSION_END', requestId);
+                    console.info(`[REVERSE TRACE] role=HOST direction=LOCAL message_type=31 request_id=${requestId} active_session_id=unavailable peer_system_id=${peerSystemId} result=${handoffAttempted ? 'waiting_for_peer_initiated_reconnection' : 'transition_failed'}`);
+                    if (!handoffAttempted && isCurrentBSession(generation)) {
+                        cancelBReverseAutoAccept(peerSystemId, handoffToken, requestId);
+                        _bReverseHandoffPending = false;
+                        showToast('Approval received, but the role transition failed. The session was not switched.');
+                    }
+                    return;
+                }
+                _bReverseHandoffPending = false;
+                console.info(`[REVERSE TRACE] role=HOST direction=RECV message_type=31 request_id=${requestId} active_session_id=unavailable peer_system_id=${peerSystemId} decision=${result.decision} result=rejected`);
+                showToast('Reverse-control request was rejected.');
+            } catch (error) {
+                if (isCurrentBSession(generation)) {
+                    if (decisionReceived === 1) {
+                        if (decisionPeerSystemId && decisionRequestId) {
+                            const pageParams = new URLSearchParams(window.location.search);
+                            cancelBReverseAutoAccept(
+                                decisionPeerSystemId,
+                                pageParams.get('overlay_session'),
+                                decisionRequestId
+                            );
+                        }
+                        clearBReverseRequestTimeout();
+                        _bReverseRequestOutstanding = false;
+                        _bReverseHandoffPending = false;
+                        _bReverseRequestId = null;
+                        _bReversePeerSystemId = null;
+                        console.error('[REVERSE] Approval received but transition preparation failed:', error);
+                        showToast('Approval received, but switching roles failed. The session was not switched.');
+                    } else if (decisionReceived === 2) {
+                        clearBReverseRequestTimeout();
+                        _bReverseRequestOutstanding = false;
+                        _bReverseHandoffPending = false;
+                        _bReverseRequestId = null;
+                        _bReversePeerSystemId = null;
+                        console.error('[REVERSE] Rejection received but could not be acknowledged:', error);
+                        showToast('The reverse request was rejected, but local cleanup failed.');
+                    } else {
+                        console.error('[REVERSE] Could not read the approval response:', error);
+                    }
+                    if (decisionReceived !== 0 && !decisionAcknowledged) {
+                        try {
+                            const cancelResponse = await fetch('/desktop-api/session/reverse/cancel', {
+                                method: 'POST',
+                                headers: { 'X-DeskStream-Reverse-Request-Id': decisionRequestId || '' },
+                                signal: _bSessionController?.signal
+                            });
+                            if (!cancelResponse.ok && cancelResponse.status !== 409) {
+                                throw new Error(`Reverse decision cleanup failed: ${cancelResponse.status}`);
+                            }
+                        } catch (cleanupError) {
+                            console.error('[REVERSE] Could not clear the unacknowledged decision:', cleanupError);
+                        }
+                    }
+                }
+            } finally {
+                if (generation === _bSessionGeneration) _bReverseDecisionPollRunning = false;
+            }
+        }
+        
+        // Initialize static event listeners after the remote UI has been mounted.
+        const initializeBSessionSettingsListener = () => {
+            const bSettingsBtn = document.getElementById('bSettingsBtn');
+            if (bSettingsBtn) {
+                bSettingsBtn.addEventListener('click', () => {
+                    const sidebarSettingsBtn = Array.from(document.querySelectorAll('.sidebar .nav-item')).find(el => el.textContent.includes('Settings'));
+                    if (sidebarSettingsBtn) {
+                        sidebarSettingsBtn.click();
+                    } else {
+                        showToast('Settings opened');
+                    }
+                });
+            }
+        };
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializeBSessionSettingsListener, { once: true });
+        } else {
+            initializeBSessionSettingsListener();
+        }
+
+    </script>
+</body>
+</html>

@@ -1,0 +1,33 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="200dp"
+    android:height="100dp"
+    android:viewportWidth="400"
+    android:viewportHeight="200">
+
+    <!-- Soft Off-White Background Base -->
+    <path
+        android:pathData="M 0,0 H 400 V 200 H 0 Z"
+        android:fillColor="#FFF8F8" />
+
+    <!-- Soft Translucent Red Wave Layer Right -->
+    <path
+        android:pathData="M 180,220 C 260,140 320,80 420,10 V 220 Z"
+        android:fillColor="#1CDC2626" />
+
+    <!-- Secondary Translucent Red Ribbon Overlay -->
+    <path
+        android:pathData="M 240,220 C 300,120 350,50 420,0 V 220 Z"
+        android:fillColor="#15E50914" />
+
+    <!-- Fine Red Accent Stroke Lines -->
+    <path
+        android:pathData="M -20,170 C 120,210 260,180 420,50"
+        android:strokeColor="#33DC2626"
+        android:strokeWidth="1.5" />
+
+    <path
+        android:pathData="M 180,220 C 260,140 320,80 420,10"
+        android:strokeColor="#33DC2626"
+        android:strokeWidth="1.5" />
+
+</vector>

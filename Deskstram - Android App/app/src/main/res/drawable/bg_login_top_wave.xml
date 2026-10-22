@@ -1,0 +1,41 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="200dp"
+    android:height="120dp"
+    android:viewportWidth="360"
+    android:viewportHeight="216">
+
+    <!-- Translucent Soft Red Curve 1 -->
+    <path
+        android:pathData="M -20,-20 H 280 C 180,60 80,120 -20,180 Z"
+        android:fillColor="#1AEE5A5A" />
+
+    <!-- Primary Soft Red Wave 2 -->
+    <path
+        android:pathData="M -20,-20 H 220 C 150,50 60,110 -20,150 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="0"
+                android:startY="0"
+                android:endX="200"
+                android:endY="150"
+                android:type="linear">
+                <item android:color="#44F87171" android:offset="0.0" />
+                <item android:color="#22EF4444" android:offset="1.0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Fine White Stroke Line 1 -->
+    <path
+        android:pathData="M -20,150 C 60,110 150,50 220,-20"
+        android:strokeColor="#AAFFFFFF"
+        android:strokeWidth="1.5" />
+
+    <!-- Fine White Stroke Line 2 -->
+    <path
+        android:pathData="M -20,180 C 80,120 180,60 280,-20"
+        android:strokeColor="#66FFFFFF"
+        android:strokeWidth="1.2" />
+
+</vector>

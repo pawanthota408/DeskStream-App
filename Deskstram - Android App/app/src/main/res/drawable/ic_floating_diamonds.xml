@@ -1,0 +1,22 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="100dp"
+    android:height="100dp"
+    android:viewportWidth="100"
+    android:viewportHeight="100">
+
+    <!-- Big Top Diamond -->
+    <path
+        android:pathData="M 60,10 L 88,38 L 60,66 L 32,38 Z"
+        android:fillColor="#33FF6B6B" />
+
+    <!-- Small Left Diamond -->
+    <path
+        android:pathData="M 22,28 L 36,42 L 22,56 L 8,42 Z"
+        android:fillColor="#44FF8A8A" />
+
+    <!-- Small Bottom Diamond -->
+    <path
+        android:pathData="M 48,52 L 62,66 L 48,80 L 34,66 Z"
+        android:fillColor="#44FF8A8A" />
+
+</vector>

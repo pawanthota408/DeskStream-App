@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="Theme.DeskStream" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/deskstream_bg</item>
+    </style>
+
+    <style name="Theme.DeskStream.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/deskstream_bg</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_deskstream_splash</item>
+        <item name="postSplashScreenTheme">@style/Theme.DeskStream</item>
+    </style>
+
+</resources>
