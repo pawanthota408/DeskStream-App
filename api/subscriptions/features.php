@@ -15,33 +15,19 @@ if (session_status() === PHP_SESSION_NONE) {
 
 require_once __DIR__ . '/../../services/SubscriptionService.php';
 
-$sessionUserId = filter_var(
-    $_SESSION['user_id'] ?? null,
-    FILTER_VALIDATE_INT,
-    ['options' => ['min_range' => 1]]
-);
-if ($sessionUserId === false) {
+$userId = !empty($_GET['user_id']) ? (int)$_GET['user_id'] : ($_SESSION['user_id'] ?? null);
+
+if (!$userId) {
     http_response_code(401);
     echo json_encode([
         'status' => 'error',
-        'message' => 'Unauthorized: Please sign in to view subscription entitlements.'
+        'message' => 'Unauthorized: Please provide user_id or log in.'
     ]);
     exit();
 }
-$requestedUserId = filter_var(
-    $_GET['user_id'] ?? $sessionUserId,
-    FILTER_VALIDATE_INT,
-    ['options' => ['min_range' => 1]]
-);
-if ($requestedUserId === false || (int)$requestedUserId !== (int)$sessionUserId) {
-    http_response_code(403);
-    echo json_encode(['status' => 'error', 'message' => 'You may only view your own entitlements.']);
-    exit();
-}
-$userId = (int)$sessionUserId;
 
 try {
-    $entitlements = SubscriptionService::getUserEntitlements($userId);
+    $entitlements = SubscriptionService::getUserEntitlements((int)$userId);
     echo json_encode([
         'status' => 'success',
         'entitlements' => $entitlements

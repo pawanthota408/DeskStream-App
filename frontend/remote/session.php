@@ -471,54 +471,60 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
             -webkit-user-select: none;
         }
 
+        @media (max-width: 768px) {
+            .viewer-header {
+                display: none !important;
+            }
+        }
+
         /* VIRTUAL REMOTE CURSOR (ANYDESK STYLE) */
         .remote-cursor {
             position: absolute;
             top: 0;
             left: 0;
             pointer-events: none;
-            z-index: 120;
-            display: none;
-            transform: translate3d(0, 0, 0);
+            z-index: 9999;
+            display: block;
+            transform: translate3d(50vw, 50vh, 0);
             will-change: transform;
-            filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.45));
+            filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.75));
             transition: opacity 0.2s ease;
         }
 
         .remote-cursor svg {
             display: block;
-            width: 20px;
-            height: 24px;
+            width: 26px;
+            height: 32px;
         }
 
         .cursor-ripple {
             position: absolute;
-            top: 0;
-            left: 0;
-            width: 26px;
-            height: 26px;
-            margin-left: -13px;
-            margin-top: -13px;
+            top: 2px;
+            left: 2px;
+            width: 32px;
+            height: 32px;
+            margin-left: -16px;
+            margin-top: -16px;
             border-radius: 50%;
-            border: 2px solid #ef4444;
-            background: rgba(239, 68, 68, 0.25);
+            border: 2.5px solid #ef4444;
+            background: rgba(239, 68, 68, 0.3);
             opacity: 0;
             pointer-events: none;
             transform: scale(0.3);
         }
 
         .cursor-ripple.active {
-            animation: cursor-ripple-anim 0.4s cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
+            animation: cursor-ripple-anim 0.45s cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
         }
 
         @keyframes cursor-ripple-anim {
             0% {
-                opacity: 0.95;
+                opacity: 1;
                 transform: scale(0.3);
             }
             100% {
                 opacity: 0;
-                transform: scale(1.6);
+                transform: scale(1.8);
             }
         }
 
@@ -879,8 +885,9 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
         <canvas id="remoteCanvas" tabindex="0"></canvas>
         <div id="remoteCursor" class="remote-cursor">
             <div class="cursor-ripple" id="cursorRipple"></div>
-            <svg width="20" height="24" viewBox="0 0 16 22" fill="none">
-                <path d="M0.5 0.5 L0.5 17 L5.2 12.8 L8.8 20.2 L11.6 18.7 L8 11.5 L14.5 11.5 Z" fill="#FFFFFF" stroke="#0f172a" stroke-width="1.5" stroke-linejoin="round"/>
+            <svg width="26" height="32" viewBox="0 0 26 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M2 2L2 25.5L8.5 19.5L13.5 30L17.5 28L12.5 17.5L21.5 17.5L2 2Z" fill="#FFFFFF" stroke="#0f172a" stroke-width="2" stroke-linejoin="round"/>
+                <circle cx="2" cy="2" r="1.5" fill="#EF4444" />
             </svg>
         </div>
 
@@ -4060,6 +4067,7 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
 
             streamBox.style.display =
                 "flex";
+            initRemoteCursorPosition();
 
             if (typeof advToolbar !== 'undefined' && advToolbar) {
                 advToolbar.style.display = "flex";
@@ -4772,12 +4780,20 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
             if (!cursor) return;
 
             const boxRect = streamBox.getBoundingClientRect();
-            const x = clientX - boxRect.left;
-            const y = clientY - boxRect.top;
+            const x = Math.round(clientX - boxRect.left - 2);
+            const y = Math.round(clientY - boxRect.top - 2);
 
             cursor.style.display = "block";
             cursor.style.opacity = "1";
             cursor.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+        }
+
+        function initRemoteCursorPosition() {
+            if (!streamBox) return;
+            const boxRect = streamBox.getBoundingClientRect();
+            if (boxRect.width > 0 && boxRect.height > 0) {
+                updateRemoteCursor(boxRect.left + boxRect.width / 2, boxRect.top + boxRect.height / 2);
+            }
         }
 
         function triggerCursorClickEffect(clientX, clientY) {
@@ -5011,8 +5027,10 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
         let touchStartTime = 0;
         let touchStartPos = null;
         let touchLongPressTimer = null;
+        let touchHasMoved = false;
         let isTouchDragging = false;
         let touchLastWheelY = 0;
+        let lastTapTime = 0;
 
         function attachTouchEvents() {
             if (!canvas) return;
@@ -5024,25 +5042,36 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
                     const touch = e.touches[0];
                     touchStartTime = Date.now();
                     touchStartPos = { x: touch.clientX, y: touch.clientY };
-                    isTouchDragging = false;
+                    touchHasMoved = false;
 
-                    // Immediately move cursor to touch position
+                    const now = Date.now();
+                    // Double-tap & drag gesture: if tapped again within 320ms, activate drag mode!
+                    if (now - lastTapTime < 320) {
+                        isTouchDragging = true;
+                        sendMouseDown({ clientX: touch.clientX, clientY: touch.clientY, button: 0 });
+                    } else {
+                        isTouchDragging = false;
+                    }
+
+                    // Move virtual cursor smoothly to touch position (WITHOUT pressing mouse button)
+                    updateRemoteCursor(touch.clientX, touch.clientY);
                     sendMouseMove(touch);
 
-                    // Long-press timer (450ms) for Right Click
+                    // Long-press timer (500ms) for Right Click
                     clearTimeout(touchLongPressTimer);
                     touchLongPressTimer = setTimeout(() => {
-                        if (touchStartPos && !isTouchDragging) {
+                        if (touchStartPos && !touchHasMoved && !isTouchDragging) {
                             if (navigator.vibrate) {
                                 try { navigator.vibrate(40); } catch (_) {}
                             }
+                            triggerCursorClickEffect(touch.clientX, touch.clientY);
                             sendMouseDown({ clientX: touch.clientX, clientY: touch.clientY, button: 2 });
                             setTimeout(() => {
                                 sendMouseUp({ clientX: touch.clientX, clientY: touch.clientY, button: 2 });
                             }, 50);
                             touchStartPos = null;
                         }
-                    }, 450);
+                    }, 500);
                 } else if (e.touches.length === 2) {
                     // 2-finger scroll preparation
                     clearTimeout(touchLongPressTimer);
@@ -5063,16 +5092,14 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
                         const dist = Math.hypot(dx, dy);
 
                         if (dist > 8) {
+                            touchHasMoved = true;
                             clearTimeout(touchLongPressTimer);
-                            if (!isTouchDragging) {
-                                isTouchDragging = true;
-                                sendMouseDown({ clientX: touch.clientX, clientY: touch.clientY, button: 0 });
-                            }
-                            sendMouseMove(touch);
                         }
-                    } else if (isTouchDragging) {
-                        sendMouseMove(touch);
                     }
+
+                    // Always move cursor cleanly without holding down left mouse click (prevents unwanted text selection)
+                    updateRemoteCursor(touch.clientX, touch.clientY);
+                    sendMouseMove(touch);
                 } else if (e.touches.length === 2) {
                     const currentY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
                     const deltaY = touchLastWheelY - currentY;
@@ -5090,29 +5117,37 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
             canvas.addEventListener("touchend", (e) => {
                 clearTimeout(touchLongPressTimer);
 
-                if (e.changedTouches && e.changedTouches.length > 0) {
-                    const lastTouch = e.changedTouches[0];
-                    updateRemoteCursor(lastTouch.clientX, lastTouch.clientY);
+                const touch = (e.changedTouches && e.changedTouches.length > 0) ? e.changedTouches[0] : null;
+                if (touch) {
+                    updateRemoteCursor(touch.clientX, touch.clientY);
                 }
 
                 if (isTouchDragging) {
                     isTouchDragging = false;
-                    const touch = e.changedTouches[0];
-                    sendMouseUp({ clientX: touch.clientX, clientY: touch.clientY, button: 0 });
-                } else if (touchStartPos && e.changedTouches.length > 0) {
-                    const touch = e.changedTouches[0];
+                    if (touch) {
+                        sendMouseUp({ clientX: touch.clientX, clientY: touch.clientY, button: 0 });
+                    } else {
+                        sendMouseUp({ button: 0 });
+                    }
+                } else if (touchStartPos && touch) {
                     const duration = Date.now() - touchStartTime;
                     const dx = touch.clientX - touchStartPos.x;
                     const dy = touch.clientY - touchStartPos.y;
-                    if (duration < 450 && Math.hypot(dx, dy) < 15) {
+                    const dist = Math.hypot(dx, dy);
+
+                    // Single Tap: If finger did not drag significantly, perform click!
+                    if (!touchHasMoved && duration < 450 && dist < 15) {
+                        triggerCursorClickEffect(touch.clientX, touch.clientY);
                         sendMouseMove(touch);
                         sendMouseDown({ clientX: touch.clientX, clientY: touch.clientY, button: 0 });
                         setTimeout(() => {
                             sendMouseUp({ clientX: touch.clientX, clientY: touch.clientY, button: 0 });
                         }, 40);
+                        lastTapTime = Date.now();
                     }
                 }
                 touchStartPos = null;
+                touchHasMoved = false;
             }, { passive: false });
 
             canvas.addEventListener("touchcancel", () => {
@@ -5122,6 +5157,7 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
                     sendMouseUp({ button: 0 });
                 }
                 touchStartPos = null;
+                touchHasMoved = false;
             });
         }
 

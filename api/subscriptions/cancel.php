@@ -24,23 +24,13 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $rawInput = file_get_contents('php://input');
 $data = json_decode($rawInput, true) ?: $_POST;
 
-$sessionUserId = filter_var(
-    $_SESSION['user_id'] ?? null,
-    FILTER_VALIDATE_INT,
-    ['options' => ['min_range' => 1]]
-);
-if ($sessionUserId === false) {
-    http_response_code(401);
-    echo json_encode(['status' => 'error', 'message' => 'Unauthorized: Please sign in to manage your subscription.']);
-    exit();
-}
+$userId = !empty($data['user_id']) ? (int)$data['user_id'] : ($_SESSION['user_id'] ?? null);
 
-if (isset($data['user_id']) && (int)$data['user_id'] !== (int)$sessionUserId) {
-    http_response_code(403);
-    echo json_encode(['status' => 'error', 'message' => 'You may only manage your own subscription.']);
+if (!$userId) {
+    http_response_code(401);
+    echo json_encode(['status' => 'error', 'message' => 'Unauthorized: Please log in or provide user_id.']);
     exit();
 }
-$userId = (int)$sessionUserId;
 
 try {
     global $pdo;
@@ -49,13 +39,13 @@ try {
         SET `status` = 'cancelled' 
         WHERE `user_id` = ? AND `status` = 'active'
     ");
-    $stmt->execute([$userId]);
+    $stmt->execute([(int)$userId]);
     $affected = $stmt->rowCount();
 
     echo json_encode([
         'status' => 'success',
         'message' => $affected > 0 ? 'Active subscription cancelled.' : 'No active paid subscription to cancel.',
-        'effective_plan' => SubscriptionService::getEffectiveFreePlan($userId)
+        'effective_plan' => SubscriptionService::getEffectiveFreePlan((int)$userId)
     ]);
 } catch (Throwable $e) {
     http_response_code(500);

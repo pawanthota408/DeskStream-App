@@ -16,41 +16,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 $processNames = ['DeskStream.exe', 'desktop-agent.exe'];
 
-function find_deskstream_processes(array $processNames): array
-{
-    $processes = [];
-    foreach ($processNames as $processName) {
-        $output = [];
-        $exitCode = 0;
-        exec('tasklist /FI "IMAGENAME eq ' . $processName . '" /FO CSV /NH 2>NUL', $output, $exitCode);
-        if ($exitCode !== 0) {
-            error_log('[DESKSTREAM LAUNCH] tasklist failed for ' . $processName . ': exit=' . $exitCode);
-            continue;
-        }
-        foreach ($output as $line) {
-            if (stripos($line, $processName) === false) {
-                continue;
-            }
+// ─── 1. Check if DeskStream is already running ───────────────────────────────
+$runningPids = [];
+$runningImages = [];
+foreach ($processNames as $processName) {
+    $output = [];
+    @exec('tasklist /FI "IMAGENAME eq ' . $processName . '" /FO CSV /NH 2>NUL', $output);
+    foreach ($output as $line) {
+        if (stripos($line, $processName) !== false) {
             $parts = str_getcsv($line);
             if (!empty($parts[1]) && is_numeric($parts[1])) {
-                $processes[] = ['pid' => (int)$parts[1], 'image' => $processName];
+                $runningPids[] = (int)$parts[1];
+                $runningImages[] = $processName;
             }
         }
     }
-    return $processes;
 }
 
-// ─── 1. Check if DeskStream is already running ───────────────────────────────
-$runningProcesses = find_deskstream_processes($processNames);
-error_log('[DESKSTREAM LAUNCH] Existing process check: ' . json_encode($runningProcesses));
-
-if (!empty($runningProcesses)) {
+if (!empty($runningPids)) {
     echo json_encode([
         "status"          => "success",
         "already_running" => true,
-        "pids"            => array_column($runningProcesses, 'pid'),
-        "pid"             => $runningProcesses[0]['pid'],
-        "process"         => $runningProcesses[0]['image'],
+        "pids"            => $runningPids,
+        "pid"             => $runningPids[0],
+        "process"         => $runningImages[0],
         "executable"      => null,
         "message"         => "DeskStream is already running."
     ]);
@@ -91,7 +80,6 @@ foreach ($installCandidates as $candidate) {
         break;
     }
 }
-error_log('[DESKSTREAM LAUNCH] Resolved executable: ' . ($exePath ?: 'not found'));
 
 if (!$exePath) {
     http_response_code(404);
@@ -124,7 +112,6 @@ foreach ($sessionOut as $line) {
 }
 
 if (!$interactiveUser) {
-    error_log('[DESKSTREAM LAUNCH] No active interactive session; launch not attempted.');
     http_response_code(409);
     echo json_encode([
         "status"  => "error",
@@ -151,7 +138,6 @@ $createCmd = 'schtasks /Create /TN "' . $taskName . '"'
 $createOut = [];
 $createRet = 0;
 exec($createCmd, $createOut, $createRet);
-error_log('[DESKSTREAM LAUNCH] schtasks create exit=' . $createRet . '; output=' . implode(' | ', $createOut));
 
 if ($createRet !== 0) {
     // Fallback: try without /RL HIGHEST (standard user)
@@ -164,7 +150,6 @@ if ($createRet !== 0) {
         . ' /IT'
         . ' /F 2>&1';
     exec($createCmd2, $createOut, $createRet);
-    error_log('[DESKSTREAM LAUNCH] schtasks fallback create exit=' . $createRet . '; output=' . implode(' | ', $createOut));
 }
 
 if ($createRet !== 0) {
@@ -183,7 +168,6 @@ $runCmd = 'schtasks /Run /TN "' . $taskName . '" 2>&1';
 $runOut = [];
 $runRet = 0;
 exec($runCmd, $runOut, $runRet);
-error_log('[DESKSTREAM LAUNCH] schtasks run exit=' . $runRet . '; output=' . implode(' | ', $runOut));
 
 if ($runRet !== 0) {
     @exec('schtasks /Delete /TN "' . $taskName . '" /F 2>NUL');
@@ -201,29 +185,33 @@ if ($runRet !== 0) {
 usleep(800000);
 @exec('schtasks /Delete /TN "' . $taskName . '" /F 2>NUL');
 
-// ─── 3. Find the new process using both current and legacy image names ────────
-$newProcesses = [];
+// ─── 3. Find the new PID ──────────────────────────────────────────────────────
+$newPids = [];
 for ($attempt = 0; $attempt < 5; $attempt++) {
-    $newProcesses = find_deskstream_processes($processNames);
-    error_log('[DESKSTREAM LAUNCH] Confirmation attempt=' . ($attempt + 1) . '; processes=' . json_encode($newProcesses));
-    if (!empty($newProcesses)) {
+    $checkOut = [];
+    @exec('tasklist /FI "IMAGENAME eq ' . $processName . '" /FO CSV /NH 2>NUL', $checkOut);
+    foreach ($checkOut as $line) {
+        if (stripos($line, $processName) !== false) {
+            $parts = str_getcsv($line);
+            if (!empty($parts[1]) && is_numeric($parts[1])) {
+                $newPids[] = (int)$parts[1];
+            }
+        }
+    }
+    if (!empty($newPids)) {
         break;
     }
     usleep(400000);
 }
 
-$pid = !empty($newProcesses) ? $newProcesses[0]['pid'] : null;
-$process = !empty($newProcesses) ? $newProcesses[0]['image'] : null;
-$started = !empty($newProcesses);
-error_log('[DESKSTREAM LAUNCH] Result=' . ($started ? 'running' : 'not-running')
-    . '; pid=' . ($pid ?? 'none') . '; image=' . ($process ?? 'none') . '; path=' . $exePath);
+$pid = !empty($newPids) ? $newPids[0] : null;
+$started = !empty($newPids);
 
 echo json_encode([
     "status"          => $started ? "success" : "error",
     "already_running" => false,
     "started"         => $started,
     "pid"             => $pid,
-    "process"         => $process,
     "executable"      => $exePath,
     "session"         => "interactive",
     "launch_method"   => "schtasks",

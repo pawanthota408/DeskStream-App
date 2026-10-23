@@ -73,7 +73,7 @@ fun RemoteSessionScreen(
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var loadError by remember { mutableStateOf<String?>(null) }
-    var showToolbar by remember { mutableStateOf(true) }
+    var showToolbar by remember { mutableStateOf(false) }
 
     // Intercept back button to confirm exit / disconnect
     BackHandler {
@@ -161,6 +161,7 @@ fun RemoteSessionScreen(
 
                         override fun onPageFinished(view: WebView?, url: String?) {
                             isLoading = false
+                            showToolbar = false
                         }
 
                         override fun shouldOverrideUrlLoading(

@@ -10,7 +10,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 require_once __DIR__ . '/../../config/database.php';
-require_once __DIR__ . '/_auth.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
@@ -24,7 +23,7 @@ $data = json_decode($rawInput, true);
 $targetSystemId = preg_replace('/[^0-9]/', '', (string)($data['target_system_id'] ?? $data['target_id'] ?? ''));
 $requesterSystemId = preg_replace('/[^0-9]/', '', (string)($data['requester_system_id'] ?? $data['requester_id'] ?? ''));
 $requesterName = trim($data['requester_name'] ?? 'Dashboard Viewer');
-$requesterUserId = requireConnectionUser();
+$requesterUserId = !empty($data['requester_user_id']) ? (int)$data['requester_user_id'] : null;
 $localLoopback = !empty($data['local_loopback']);
 
 if (empty($targetSystemId)) {
@@ -39,12 +38,10 @@ if (!$localLoopback && !empty($requesterSystemId) && $requesterSystemId === $tar
     exit();
 }
 
-require_once __DIR__ . '/../../services/SubscriptionService.php';
-
 try {
     // 1. Find target device directly by system_id or device_uid
     $targetStmt = $pdo->prepare("
-        SELECT id, user_id, system_id, device_uid, name, os_type, ip_address, is_online, last_seen_at,
+        SELECT id, user_id, system_id, device_uid, name, ip_address, is_online, last_seen_at,
                TIMESTAMPDIFF(SECOND, last_seen_at, NOW()) AS sec_since_seen
         FROM devices 
         WHERE system_id = ? OR device_uid = ?
@@ -57,22 +54,6 @@ try {
     if (!$targetSystem) {
         http_response_code(404);
         echo json_encode(["status" => "error", "message" => "Device with ID '{$targetSystemId}' does not exist or has not registered."]);
-        exit();
-    }
-    $canonicalTargetSystemId = (string)($targetSystem['system_id'] ?: $targetSystem['device_uid']);
-
-    // Check if target is a mobile device (cannot stream screen)
-    $targetOs = strtolower((string)($targetSystem['os_type'] ?? ''));
-    $targetName = (string)($targetSystem['name'] ?? '');
-    $isMobileTarget = ($targetOs === 'android' || $targetOs === 'ios' || stripos($targetName, 'mobile') !== false || stripos($targetName, 'android') !== false || stripos($targetName, 'vivo') !== false);
-
-    if ($isMobileTarget) {
-        http_response_code(400);
-        echo json_encode([
-            "status" => "error", 
-            "code" => "MOBILE_TARGET_NOT_SUPPORTED",
-            "message" => "Target device '{$targetSystem['name']}' ({$targetSystemId}) is a mobile phone. DeskStream currently streams screens from Windows PC / Laptop computers only. To view a screen, please enter your PC / Laptop's DeskStream ID (e.g. 375 768 952)."
-        ]);
         exit();
     }
 
@@ -89,32 +70,16 @@ try {
         exit();
     }
 
-    // Reserve the user's concurrency slot through request creation to prevent parallel requests
-    // from bypassing the Free Plan limit.
-    $pdo->beginTransaction();
-    $sessionAuth = SubscriptionService::checkConcurrentSessionLimit($requesterUserId);
-    if (empty($sessionAuth['authorized'])) {
-        $pdo->rollBack();
-        http_response_code(403);
-        echo json_encode([
-            "status" => "error",
-            "code" => $sessionAuth['code'] ?? 'LIMIT_EXCEEDED',
-            "message" => $sessionAuth['message'] ?? 'Concurrent session limit exceeded on your account.'
-        ]);
-        exit();
-    }
-
     // 3. Generate unique request token
     $requestToken = bin2hex(random_bytes(16));
 
     // 4. Create connection request record (expires in 60s)
-    // For local loopback or same account devices, auto-accept
-    $isSameAccount = (!empty($requesterUserId) && !empty($targetSystem['user_id']) && (int)$requesterUserId === (int)$targetSystem['user_id']);
-    $initialStatus = ($localLoopback || $isSameAccount) ? 'accepted' : 'pending';
+    // For local loopback, auto-accept since the requester IS the target
+    $initialStatus = $localLoopback ? 'accepted' : 'pending';
     $insertStmt = $pdo->prepare("
         INSERT INTO connection_requests 
         (request_token, requester_user_id, requester_system_id, requester_name, target_user_id, target_system_id, status, created_at, expires_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, UTC_TIMESTAMP(), UTC_TIMESTAMP() + INTERVAL 60 SECOND)
+        VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW() + INTERVAL 60 SECOND)
     ");
 
     $insertStmt->execute([
@@ -123,10 +88,9 @@ try {
         $requesterSystemId ?: '000000000',
         $requesterName,
         $targetSystem['user_id'],
-        $canonicalTargetSystemId,
+        $targetSystemId,
         $initialStatus
     ]);
-    $pdo->commit();
 
     $requestId = $pdo->lastInsertId();
 
@@ -136,7 +100,7 @@ try {
         "request" => [
             "id" => $requestId,
             "request_token" => $requestToken,
-            "target_system_id" => $canonicalTargetSystemId,
+            "target_system_id" => $targetSystemId,
             "target_name" => $targetSystem['name'],
             "target_ip" => $targetSystem['ip_address'],
             "status" => $initialStatus,
@@ -144,11 +108,7 @@ try {
         ]
     ]);
 
-} catch (\Throwable $e) {
-    if ($pdo->inTransaction()) {
-        $pdo->rollBack();
-    }
-    error_log('Connection request creation failed: ' . $e->getMessage());
+} catch (\PDOException $e) {
     http_response_code(500);
-    echo json_encode(["status" => "error", "message" => "Unable to create the connection request."]);
+    echo json_encode(["status" => "error", "message" => "Database error: " . $e->getMessage()]);
 }
