@@ -471,6 +471,57 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
             -webkit-user-select: none;
         }
 
+        /* VIRTUAL REMOTE CURSOR (ANYDESK STYLE) */
+        .remote-cursor {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+            z-index: 120;
+            display: none;
+            transform: translate3d(0, 0, 0);
+            will-change: transform;
+            filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.45));
+            transition: opacity 0.2s ease;
+        }
+
+        .remote-cursor svg {
+            display: block;
+            width: 20px;
+            height: 24px;
+        }
+
+        .cursor-ripple {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 26px;
+            height: 26px;
+            margin-left: -13px;
+            margin-top: -13px;
+            border-radius: 50%;
+            border: 2px solid #ef4444;
+            background: rgba(239, 68, 68, 0.25);
+            opacity: 0;
+            pointer-events: none;
+            transform: scale(0.3);
+        }
+
+        .cursor-ripple.active {
+            animation: cursor-ripple-anim 0.4s cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
+        }
+
+        @keyframes cursor-ripple-anim {
+            0% {
+                opacity: 0.95;
+                transform: scale(0.3);
+            }
+            100% {
+                opacity: 0;
+                transform: scale(1.6);
+            }
+        }
+
         /* FLOATING CONTROLS */
         .floating-controls {
             position: absolute;
@@ -826,6 +877,12 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
         </div>
 
         <canvas id="remoteCanvas" tabindex="0"></canvas>
+        <div id="remoteCursor" class="remote-cursor">
+            <div class="cursor-ripple" id="cursorRipple"></div>
+            <svg width="20" height="24" viewBox="0 0 16 22" fill="none">
+                <path d="M0.5 0.5 L0.5 17 L5.2 12.8 L8.8 20.2 L11.6 18.7 L8 11.5 L14.5 11.5 Z" fill="#FFFFFF" stroke="#0f172a" stroke-width="1.5" stroke-linejoin="round"/>
+            </svg>
+        </div>
 
         <?php if ($layer === 'B'): ?>
         <div class="floating-controls" id="floatingControls">
@@ -1176,6 +1233,8 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
             console.info("[SESSION] Server reservation active.");
         }
 
+        let heartbeatFailCount = 0;
+
         async function refreshSessionReservation() {
             if (!sessionReservation || heartbeatInProgress) return;
             heartbeatInProgress = true;
@@ -1186,17 +1245,22 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                         session_key: sessionReservation.sessionKey,
-                        request_token: sessionReservation.requestToken
+                        request_token: sessionReservation.requestToken,
+                        device_id: (typeof DEVICE_ID !== 'undefined') ? DEVICE_ID : ''
                     })
                 });
-                const result = await response.json();
+                const result = await response.json().catch(() => ({ status: "error", message: "Invalid JSON response" }));
                 if (!response.ok || result.status !== "success") {
                     throw new Error(result.message || `HTTP ${response.status}`);
                 }
+                heartbeatFailCount = 0;
             } catch (error) {
-                console.error("[SESSION] Reservation heartbeat failed; closing the stream.", error);
-                window.alert("The server could not refresh this session's authorization. The remote desktop session will be disconnected.");
-                stopWebStream();
+                heartbeatFailCount++;
+                console.warn(`[SESSION] Reservation heartbeat warning (${heartbeatFailCount}/5):`, error);
+                if (heartbeatFailCount >= 5) {
+                    console.error("[SESSION] Reservation heartbeat failed 5 consecutive times; closing the stream.", error);
+                    stopWebStream();
+                }
             } finally {
                 heartbeatInProgress = false;
             }
@@ -4699,10 +4763,44 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
         }
 
         /* ============================================================
+           ANYDESK VIRTUAL REMOTE CURSOR ENGINE
+        ============================================================ */
+
+        function updateRemoteCursor(clientX, clientY) {
+            if (!streamBox || clientX === undefined || clientY === undefined) return;
+            const cursor = document.getElementById("remoteCursor");
+            if (!cursor) return;
+
+            const boxRect = streamBox.getBoundingClientRect();
+            const x = clientX - boxRect.left;
+            const y = clientY - boxRect.top;
+
+            cursor.style.display = "block";
+            cursor.style.opacity = "1";
+            cursor.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+        }
+
+        function triggerCursorClickEffect(clientX, clientY) {
+            if (clientX !== undefined && clientY !== undefined) {
+                updateRemoteCursor(clientX, clientY);
+            }
+            const ripple = document.getElementById("cursorRipple");
+            if (ripple) {
+                ripple.classList.remove("active");
+                void ripple.offsetWidth; // Force CSS reflow
+                ripple.classList.add("active");
+            }
+        }
+
+        /* ============================================================
            MOUSE MOVE
         ============================================================ */
 
         function sendMouseMove(event) {
+            if (event && event.clientX !== undefined && event.clientY !== undefined) {
+                updateRemoteCursor(event.clientX, event.clientY);
+            }
+
             if (!isSocketOpen()) {
                 return;
             }
@@ -4735,6 +4833,10 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
         ============================================================ */
 
         function sendMouseDown(event) {
+            if (event && event.clientX !== undefined && event.clientY !== undefined) {
+                triggerCursorClickEffect(event.clientX, event.clientY);
+            }
+
             if (!isSocketOpen()) {
                 return;
             }
@@ -4988,6 +5090,11 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
             canvas.addEventListener("touchend", (e) => {
                 clearTimeout(touchLongPressTimer);
 
+                if (e.changedTouches && e.changedTouches.length > 0) {
+                    const lastTouch = e.changedTouches[0];
+                    updateRemoteCursor(lastTouch.clientX, lastTouch.clientY);
+                }
+
                 if (isTouchDragging) {
                     isTouchDragging = false;
                     const touch = e.changedTouches[0];
@@ -5082,16 +5189,29 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
             canvas.setAttribute("tabindex", "0");
             canvas.style.outline = "none";
 
-            canvas.addEventListener("mousemove", sendMouseMove);
+            canvas.addEventListener("mousemove", (event) => {
+                updateRemoteCursor(event.clientX, event.clientY);
+                sendMouseMove(event);
+            });
 
             canvas.addEventListener("mousedown", event => {
                 canvas.focus();
+                triggerCursorClickEffect(event.clientX, event.clientY);
                 sendMouseDown(event);
             });
 
             canvas.addEventListener("mouseup", sendMouseUp);
             // Also handle mouse leaving canvas while dragging
-            canvas.addEventListener("mouseleave", sendMouseUp);
+            canvas.addEventListener("mouseleave", event => {
+                sendMouseUp(event);
+                const cursor = document.getElementById("remoteCursor");
+                if (cursor) cursor.style.opacity = "0.7";
+            });
+
+            canvas.addEventListener("mouseenter", () => {
+                const cursor = document.getElementById("remoteCursor");
+                if (cursor) cursor.style.opacity = "1";
+            });
 
             canvas.addEventListener("contextmenu", event => {
                 event.preventDefault();

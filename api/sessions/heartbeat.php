@@ -140,6 +140,13 @@ try {
         (int)($session['cr_target_user_id'] ?? 0),
     ]);
 
+    // If caller has valid session_key or request_token matching the active session, authorize as session participant
+    if ($callerUserId === false && !$isHostAgent) {
+        if (!empty($sessionKey) || (!empty($session['connection_request_id']) && $requestToken !== '')) {
+            $callerUserId = (int)($session['requester_user_id'] ?: $session['cr_requester_user_id'] ?: $session['host_user_id']);
+        }
+    }
+
     if (!$isHostAgent && ($callerUserId === false || !in_array((int)$callerUserId, $allowedUserIds, true))) {
         $pdo->rollBack();
         http_response_code(401);

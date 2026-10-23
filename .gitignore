@@ -42,5 +42,7 @@ output.txt
 run_debug.txt
 *.diff
 *.patch
+.kotlin/
+**/.kotlin/
 
 
