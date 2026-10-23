@@ -69,14 +69,14 @@ if ($currentUserId === false) {
 }
 
 try {
-    // 2. Server-side sweep of inactive sessions
+    // 2. Server-side sweep of inactive sessions (allow 15 minutes before reaping)
     $pdo->exec("
         UPDATE `sessions`
         SET `ended_at` = COALESCE(`last_activity_at`, `started_at`),
             `status` = 'completed'
         WHERE `status` = 'active'
-          AND (`last_activity_at` < (UTC_TIMESTAMP() - INTERVAL 90 SECOND)
-               OR (`last_activity_at` IS NULL AND `started_at` < (UTC_TIMESTAMP() - INTERVAL 180 SECOND)))
+          AND (`last_activity_at` < (UTC_TIMESTAMP() - INTERVAL 15 MINUTE)
+               OR (`last_activity_at` IS NULL AND `started_at` < (UTC_TIMESTAMP() - INTERVAL 15 MINUTE)))
     ");
 
     // 3. Fetch active sessions for current user

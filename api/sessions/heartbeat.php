@@ -154,33 +154,25 @@ try {
         exit();
     }
 
-    // Entitlement consistency check
+    // Sync plan slugs gracefully without abruptly terminating the active session
     if (class_exists('SubscriptionService') && !empty($session['requester_user_id']) && !empty($session['host_user_id'])) {
-        $requesterEntitlements = SubscriptionService::getUserEntitlements((int)$session['requester_user_id']);
-        $hostEntitlements = SubscriptionService::getUserEntitlements((int)$session['host_user_id']);
-        if ($session['requester_plan_slug'] !== $requesterEntitlements['plan_slug']
-            || $session['host_plan_slug'] !== $hostEntitlements['plan_slug']) {
-            $pdo->prepare("
-                UPDATE `sessions`
-                SET `status` = 'completed', `ended_at` = UTC_TIMESTAMP(), `last_activity_at` = UTC_TIMESTAMP()
-                WHERE `id` = ? AND `status` = 'active'
-            ")->execute([(int)$session['id']]);
-
-            if (!empty($session['connection_request_id'])) {
+        try {
+            $requesterEntitlements = SubscriptionService::getUserEntitlements((int)$session['requester_user_id']);
+            $hostEntitlements = SubscriptionService::getUserEntitlements((int)$session['host_user_id']);
+            if ($session['requester_plan_slug'] !== $requesterEntitlements['plan_slug']
+                || $session['host_plan_slug'] !== $hostEntitlements['plan_slug']) {
                 $pdo->prepare("
-                    UPDATE `connection_requests`
-                    SET `status` = 'disconnected', `updated_at` = UTC_TIMESTAMP()
-                    WHERE `id` = ? AND `status` IN ('accepted', 'connected')
-                ")->execute([(int)$session['connection_request_id']]);
+                    UPDATE `sessions`
+                    SET `requester_plan_slug` = ?, `host_plan_slug` = ?
+                    WHERE `id` = ? AND `status` = 'active'
+                ")->execute([
+                    $requesterEntitlements['plan_slug'] ?? 'free',
+                    $hostEntitlements['plan_slug'] ?? 'free',
+                    (int)$session['id']
+                ]);
             }
-            $pdo->commit();
-            http_response_code(409);
-            echo json_encode([
-                'status' => 'error',
-                'code' => 'ENTITLEMENTS_CHANGED',
-                'message' => 'A participant’s plan changed. Reconnect to continue under current plan restrictions.'
-            ]);
-            exit();
+        } catch (\Throwable $e) {
+            // Do not drop the streaming session on entitlement lookup warnings
         }
     }
 

@@ -517,6 +517,47 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
             animation: cursor-ripple-anim 0.45s cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
         }
 
+        /* TOUCH ELEVATION GUIDE & ANCHOR DOT (ANYDESK STYLE) */
+        .touch-anchor-guide {
+            display: none;
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            pointer-events: none;
+            z-index: -1;
+            transition: opacity 0.15s ease;
+        }
+
+        .touch-anchor-guide.active {
+            display: block;
+        }
+
+        .touch-anchor-stem {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 2px;
+            height: 38px;
+            background: linear-gradient(to bottom, rgba(239, 68, 68, 0.95), rgba(59, 130, 246, 0.7));
+            transform: translateX(-1px);
+            border-radius: 1px;
+            box-shadow: 0 0 4px rgba(239, 68, 68, 0.5);
+        }
+
+        .touch-anchor-dot {
+            position: absolute;
+            top: 38px;
+            left: 0;
+            width: 14px;
+            height: 14px;
+            margin-left: -7px;
+            margin-top: -7px;
+            border-radius: 50%;
+            background: rgba(59, 130, 246, 0.45);
+            border: 2px solid #3b82f6;
+            box-shadow: 0 0 8px rgba(59, 130, 246, 0.7);
+        }
+
         @keyframes cursor-ripple-anim {
             0% {
                 opacity: 1;
@@ -885,9 +926,13 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
         <canvas id="remoteCanvas" tabindex="0"></canvas>
         <div id="remoteCursor" class="remote-cursor">
             <div class="cursor-ripple" id="cursorRipple"></div>
+            <div class="touch-anchor-guide" id="touchAnchorGuide">
+                <div class="touch-anchor-stem"></div>
+                <div class="touch-anchor-dot"></div>
+            </div>
             <svg width="26" height="32" viewBox="0 0 26 32" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M2 2L2 25.5L8.5 19.5L13.5 30L17.5 28L12.5 17.5L21.5 17.5L2 2Z" fill="#FFFFFF" stroke="#0f172a" stroke-width="2" stroke-linejoin="round"/>
-                <circle cx="2" cy="2" r="1.5" fill="#EF4444" />
+                <circle cx="2" cy="2" r="2.2" fill="#EF4444" stroke="#FFFFFF" stroke-width="0.8" />
             </svg>
         </div>
 
@@ -904,6 +949,13 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
                 </svg>
             </div>
             
+            <button class="floating-btn" id="cursorModeBtn" onclick="toggleTouchCursorOffset()" title="Toggle cursor elevation above finger">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/>
+                    <path d="M13 13l6 6"/>
+                </svg>
+                <span id="cursorModeLabel">Offset Cursor</span>
+            </button>
             <button class="floating-btn" id="fullscreenBtn" onclick="toggleFullscreen()">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path
@@ -1236,7 +1288,7 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
                 sessionKey: result.session_key,
                 requestToken: REQUEST_TOKEN
             };
-            sessionHeartbeatTimer = setInterval(refreshSessionReservation, 30000);
+            sessionHeartbeatTimer = setInterval(refreshSessionReservation, 15000);
             console.info("[SESSION] Server reservation active.");
         }
 
@@ -1263,13 +1315,44 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
                 heartbeatFailCount = 0;
             } catch (error) {
                 heartbeatFailCount++;
-                console.warn(`[SESSION] Reservation heartbeat warning (${heartbeatFailCount}/5):`, error);
-                if (heartbeatFailCount >= 5) {
-                    console.error("[SESSION] Reservation heartbeat failed 5 consecutive times; closing the stream.", error);
+                console.warn(`[SESSION] Reservation heartbeat warning (${heartbeatFailCount}/8):`, error);
+                if (heartbeatFailCount >= 8) {
+                    console.error("[SESSION] Reservation heartbeat failed 8 consecutive times; closing the stream.", error);
                     stopWebStream();
                 }
             } finally {
                 heartbeatInProgress = false;
+            }
+        }
+
+        /* ============================================================
+           WEBSOCKET KEEPALIVE ENGINE (TYPE 14 HEARTBEAT PROBE)
+        ============================================================ */
+        let wsKeepAliveTimer = null;
+
+        function startWebSocketKeepAlive() {
+            if (wsKeepAliveTimer) clearInterval(wsKeepAliveTimer);
+            wsKeepAliveTimer = setInterval(() => {
+                if (isSocketOpen() && isStreaming) {
+                    // Protocol packet type 14 is the 9-byte session heartbeat probe
+                    const probe = new Uint8Array(9);
+                    probe[0] = 14;
+                    const now = Date.now();
+                    const view = new DataView(probe.buffer);
+                    view.setBigUint64(1, BigInt(now), false);
+                    try {
+                        ws.send(probe);
+                    } catch (err) {
+                        console.warn("[WS] Keepalive probe send failed:", err);
+                    }
+                }
+            }, 15000);
+        }
+
+        function stopWebSocketKeepAlive() {
+            if (wsKeepAliveTimer) {
+                clearInterval(wsKeepAliveTimer);
+                wsKeepAliveTimer = null;
             }
         }
 
@@ -3923,6 +4006,7 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
                 setHud("AUTHENTICATING...");
                 console.log("[AUTH DEBUG] Sending auth");
                 sendInitializationPacket();
+                startWebSocketKeepAlive();
                 console.log("[AUTH DEBUG] Auth sent");
                 console.log("[AUTH DEBUG] Waiting for authentication response");
             };
@@ -3939,6 +4023,7 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
             };
 
             ws.onclose = function (event) {
+                stopWebSocketKeepAlive();
                 stopMicrophone();
                 stopLocalChatTyping();
                 setRemoteChatTyping(false);
@@ -4157,6 +4242,7 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
 
 
         function stopWebStream() {
+            stopWebSocketKeepAlive();
             streamStartAttempt++;
             isStartingStream = false;
             isStreaming = false;
@@ -4771,10 +4857,39 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
         }
 
         /* ============================================================
-           ANYDESK VIRTUAL REMOTE CURSOR ENGINE
+           ANYDESK VIRTUAL REMOTE CURSOR ENGINE (ELEVATED TOUCH)
         ============================================================ */
 
-        function updateRemoteCursor(clientX, clientY) {
+        let touchCursorOffsetEnabled = true; // Elevates cursor 38px above finger on mobile/touch
+        const TOUCH_OFFSET_Y = 38;
+
+        function getElevatedTouch(touch) {
+            if (!touch) return null;
+            const isOffset = touchCursorOffsetEnabled;
+            const offsetY = isOffset ? TOUCH_OFFSET_Y : 0;
+            return {
+                clientX: touch.clientX,
+                clientY: Math.max(0, touch.clientY - offsetY),
+                rawClientX: touch.clientX,
+                rawClientY: touch.clientY,
+                isOffset: isOffset,
+                identifier: touch.identifier
+            };
+        }
+
+        window.toggleTouchCursorOffset = function() {
+            touchCursorOffsetEnabled = !touchCursorOffsetEnabled;
+            const label = document.getElementById("cursorModeLabel");
+            if (label) {
+                label.textContent = touchCursorOffsetEnabled ? "Offset Cursor" : "Direct Touch";
+            }
+            const guide = document.getElementById("touchAnchorGuide");
+            if (guide && !touchCursorOffsetEnabled) {
+                guide.classList.remove("active");
+            }
+        };
+
+        function updateRemoteCursor(clientX, clientY, showGuide = false) {
             if (!streamBox || clientX === undefined || clientY === undefined) return;
             const cursor = document.getElementById("remoteCursor");
             if (!cursor) return;
@@ -4786,6 +4901,15 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
             cursor.style.display = "block";
             cursor.style.opacity = "1";
             cursor.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+
+            const guide = document.getElementById("touchAnchorGuide");
+            if (guide) {
+                if (showGuide && touchCursorOffsetEnabled) {
+                    guide.classList.add("active");
+                } else {
+                    guide.classList.remove("active");
+                }
+            }
         }
 
         function initRemoteCursorPosition() {
@@ -5040,22 +5164,23 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
             canvas.addEventListener("touchstart", (e) => {
                 if (e.touches.length === 1) {
                     const touch = e.touches[0];
+                    const target = getElevatedTouch(touch);
                     touchStartTime = Date.now();
-                    touchStartPos = { x: touch.clientX, y: touch.clientY };
+                    touchStartPos = { x: target.clientX, y: target.clientY, rawX: touch.clientX, rawY: touch.clientY };
                     touchHasMoved = false;
 
                     const now = Date.now();
                     // Double-tap & drag gesture: if tapped again within 320ms, activate drag mode!
                     if (now - lastTapTime < 320) {
                         isTouchDragging = true;
-                        sendMouseDown({ clientX: touch.clientX, clientY: touch.clientY, button: 0 });
+                        sendMouseDown({ clientX: target.clientX, clientY: target.clientY, button: 0 });
                     } else {
                         isTouchDragging = false;
                     }
 
-                    // Move virtual cursor smoothly to touch position (WITHOUT pressing mouse button)
-                    updateRemoteCursor(touch.clientX, touch.clientY);
-                    sendMouseMove(touch);
+                    // Move virtual cursor smoothly to elevated position (clearly visible above finger)
+                    updateRemoteCursor(target.clientX, target.clientY, true);
+                    sendMouseMove(target);
 
                     // Long-press timer (500ms) for Right Click
                     clearTimeout(touchLongPressTimer);
@@ -5064,10 +5189,10 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
                             if (navigator.vibrate) {
                                 try { navigator.vibrate(40); } catch (_) {}
                             }
-                            triggerCursorClickEffect(touch.clientX, touch.clientY);
-                            sendMouseDown({ clientX: touch.clientX, clientY: touch.clientY, button: 2 });
+                            triggerCursorClickEffect(target.clientX, target.clientY);
+                            sendMouseDown({ clientX: target.clientX, clientY: target.clientY, button: 2 });
                             setTimeout(() => {
-                                sendMouseUp({ clientX: touch.clientX, clientY: touch.clientY, button: 2 });
+                                sendMouseUp({ clientX: target.clientX, clientY: target.clientY, button: 2 });
                             }, 50);
                             touchStartPos = null;
                         }
@@ -5086,9 +5211,10 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
 
                 if (e.touches.length === 1) {
                     const touch = e.touches[0];
+                    const target = getElevatedTouch(touch);
                     if (touchStartPos) {
-                        const dx = touch.clientX - touchStartPos.x;
-                        const dy = touch.clientY - touchStartPos.y;
+                        const dx = touch.clientX - touchStartPos.rawX;
+                        const dy = touch.clientY - touchStartPos.rawY;
                         const dist = Math.hypot(dx, dy);
 
                         if (dist > 8) {
@@ -5098,8 +5224,8 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
                     }
 
                     // Always move cursor cleanly without holding down left mouse click (prevents unwanted text selection)
-                    updateRemoteCursor(touch.clientX, touch.clientY);
-                    sendMouseMove(touch);
+                    updateRemoteCursor(target.clientX, target.clientY, true);
+                    sendMouseMove(target);
                 } else if (e.touches.length === 2) {
                     const currentY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
                     const deltaY = touchLastWheelY - currentY;
@@ -5118,30 +5244,31 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
                 clearTimeout(touchLongPressTimer);
 
                 const touch = (e.changedTouches && e.changedTouches.length > 0) ? e.changedTouches[0] : null;
-                if (touch) {
-                    updateRemoteCursor(touch.clientX, touch.clientY);
+                const target = getElevatedTouch(touch);
+                if (target) {
+                    updateRemoteCursor(target.clientX, target.clientY, false);
                 }
 
                 if (isTouchDragging) {
                     isTouchDragging = false;
-                    if (touch) {
-                        sendMouseUp({ clientX: touch.clientX, clientY: touch.clientY, button: 0 });
+                    if (target) {
+                        sendMouseUp({ clientX: target.clientX, clientY: target.clientY, button: 0 });
                     } else {
                         sendMouseUp({ button: 0 });
                     }
-                } else if (touchStartPos && touch) {
+                } else if (touchStartPos && target) {
                     const duration = Date.now() - touchStartTime;
-                    const dx = touch.clientX - touchStartPos.x;
-                    const dy = touch.clientY - touchStartPos.y;
+                    const dx = touch.clientX - touchStartPos.rawX;
+                    const dy = touch.clientY - touchStartPos.rawY;
                     const dist = Math.hypot(dx, dy);
 
                     // Single Tap: If finger did not drag significantly, perform click!
                     if (!touchHasMoved && duration < 450 && dist < 15) {
-                        triggerCursorClickEffect(touch.clientX, touch.clientY);
-                        sendMouseMove(touch);
-                        sendMouseDown({ clientX: touch.clientX, clientY: touch.clientY, button: 0 });
+                        triggerCursorClickEffect(target.clientX, target.clientY);
+                        sendMouseMove(target);
+                        sendMouseDown({ clientX: target.clientX, clientY: target.clientY, button: 0 });
                         setTimeout(() => {
-                            sendMouseUp({ clientX: touch.clientX, clientY: touch.clientY, button: 0 });
+                            sendMouseUp({ clientX: target.clientX, clientY: target.clientY, button: 0 });
                         }, 40);
                         lastTapTime = Date.now();
                     }
@@ -5152,6 +5279,8 @@ if (isset($_GET['relay']) && getenv('APP_ENV') !== 'production') {
 
             canvas.addEventListener("touchcancel", () => {
                 clearTimeout(touchLongPressTimer);
+                const guide = document.getElementById("touchAnchorGuide");
+                if (guide) guide.classList.remove("active");
                 if (isTouchDragging) {
                     isTouchDragging = false;
                     sendMouseUp({ button: 0 });

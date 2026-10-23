@@ -70,14 +70,14 @@ if ($currentUserId === false) {
 }
 
 try {
-    // 2. Server-side sweep: Finalize stale active sessions older than 120 seconds of inactivity
+    // 2. Server-side sweep: Finalize stale active sessions older than 15 minutes of inactivity
     $pdo->exec("
         UPDATE `sessions`
         SET `ended_at` = COALESCE(`last_activity_at`, `started_at`),
             `status` = 'completed'
         WHERE `status` = 'active'
-          AND (`last_activity_at` < (UTC_TIMESTAMP() - INTERVAL 120 SECOND)
-               OR (`last_activity_at` IS NULL AND `started_at` < (UTC_TIMESTAMP() - INTERVAL 300 SECOND)))
+          AND (`last_activity_at` < (UTC_TIMESTAMP() - INTERVAL 15 MINUTE)
+               OR (`last_activity_at` IS NULL AND `started_at` < (UTC_TIMESTAMP() - INTERVAL 15 MINUTE)))
     ");
 
     // 3. Check schema columns
